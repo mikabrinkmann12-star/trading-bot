@@ -230,3 +230,63 @@ def test_fokus_klick_vorher_wird_nicht_zum_anlege_klick():
     focus = {"punkt": [300, 300], "doppel": False, "tippe": None}   # Klick in den Chart zum Fokus
     steps = [focus] + steps
     assert anchor_pair(steps, CHART_RECT) == (2, 3)
+
+
+class WhiteScreen(Screen):
+    """Weißer Dialog auf weißem Chart: es ändern sich nur Text/Rahmen (ca. 'share' der Pixel)."""
+
+    def __init__(self, guard, share, **kw):
+        super().__init__(guard, **kw)
+        self.share = share
+
+    def snap(self, rect):
+        np = pytest.importorskip("numpy")
+        img = np.full((rect[3], rect[2], 3), 255, dtype=np.uint8)
+        if self.is_open():
+            n = int(img.shape[0] * img.shape[1] * self.share)
+            flat = img.reshape(-1, 3)
+            flat[:n:1] = 0
+        return img
+
+
+def make_white(share, **kw):
+    cfg = {"ablaeufe": {"long": full_long().validate()}, "chart": CHART_RECT,
+           "naechste_kerze": [900, 925], "parkplatz": [900, 925], "dialog_wartezeit": 1.0}
+    g = FakeGuardIn()
+    s = WhiteScreen(g, share, **kw)
+    t = [0.0]
+
+    def sleep(sec):
+        t[0] += sec
+    dr = Drawer(cfg, g, sleep=sleep, snap=s.snap, field_reader=s.read, clock=lambda: t[0])
+    dr.save_img = lambda img, tag: tag
+    return dr, g
+
+
+def test_weisser_dialog_auf_weissem_chart_wird_erkannt():
+    dr, g = make_white(0.05)           # nur 5 % der Pixel ändern sich
+    dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert [c[2] for c in g.calls if c[0] == "type"] == ["30845,00", "31008,00", "30763,50"]
+
+
+def test_schwach_erkannt_und_zahl_steht_im_feld_laeuft_durch():
+    dr, g = make_white(0.01)           # 1 %: nur "schwach"
+    dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert len([c for c in g.calls if c[0] == "type"]) == 3
+
+
+def test_schwach_erkannt_aber_zahl_nicht_im_feld_bricht_ab():
+    dr, g = make_white(0.01, field_text=lambda n: "")
+    with pytest.raises(SafetyError, match="schwach"):
+        dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert len([c for c in g.calls if c[0] == "type"]) == 1    # nur der erste Versuch
+
+
+def test_gar_keine_veraenderung_speichert_diagnosebilder():
+    saved = []
+    dr, g = make_white(0.0)
+    dr.save_img = lambda img, tag: saved.append(tag) or tag
+    with pytest.raises(SafetyError, match="nicht aufgegangen"):
+        dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert saved == ["zeichnen_dialog_vorher", "zeichnen_dialog_nachher"]
+    assert not any(c[0] == "type" for c in g.calls)

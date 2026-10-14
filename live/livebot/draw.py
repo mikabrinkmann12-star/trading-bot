@@ -43,13 +43,22 @@ def numbers_in(text: str) -> list[float]:
     return out
 
 
-def changed(a, b, threshold: float = 0.15) -> bool:
-    """Hat sich ein Bildausschnitt deutlich verändert (Dialog auf/zu)?"""
+def change_ratio(a, b) -> float:
+    """Anteil der Pixel, die sich deutlich verändert haben (0.0 - 1.0)."""
     import numpy as np
     if a is None or b is None or a.shape != b.shape:
-        return True
+        return 1.0
     diff = np.abs(a.astype(np.int16) - b.astype(np.int16)).max(axis=2) > 30
-    return float(diff.mean()) > threshold
+    return float(diff.mean())
+
+
+STRONG, SOFT = 0.02, 0.005      # ab 2 % sicher verändert, ab 0,5 % "vermutlich"
+
+
+def changed(a, b, threshold: float = STRONG) -> bool:
+    """Hat sich ein Bildausschnitt verändert (Dialog auf/zu)? Weißer Dialog auf weißem Chart
+    ändert nur Text und Rahmen - das sind wenige Prozent der Pixel."""
+    return change_ratio(a, b) > threshold
 
 
 def anchor_pair(steps: list[dict], chart) -> tuple[int | None, int | None]:
@@ -131,22 +140,35 @@ class Drawer:
 
     # ------------------------------------------------------------ Kontrollen
     def _wait_for_change(self, rect, before, seconds: float) -> bool:
+        return self._watch(rect, before, seconds)[0] != "keins"
+
+    def _watch(self, rect, before, seconds: float) -> tuple[str, float, object]:
+        """Wartet auf eine Bildveränderung. -> ('stark'|'schwach'|'keins', Anteil, letztes Bild)."""
         deadline = self.clock() + seconds
+        best, img = 0.0, None
         while True:
-            if changed(before, self.snap(rect)):
-                return True
+            img = self.snap(rect)
+            best = max(best, change_ratio(before, img))
+            if best > STRONG:
+                return "stark", best, img
             if self.clock() >= deadline:
-                return False
+                return ("schwach" if best > SOFT else "keins"), best, img
             self.sleep(0.2)
 
-    def _wait_for_dialog(self, rect, before, field) -> bool:
-        """Dialog gilt als offen, sobald sich der Bereich um das erste Feld deutlich verändert
-        hat. Das Feld wird danach nur ZUR INFO gelesen - die OCR ist beim echten TradingView
-        nicht immer verlässlich und darf das Tippen nicht blockieren."""
+    def _wait_for_dialog(self, rect, before, field) -> str:
+        """'stark' / 'schwach' = Dialog vermutlich offen, 'keins' = nichts hat sich verändert.
+        Das Feld wird danach nur ZUR INFO gelesen - die OCR ist beim echten TradingView nicht
+        immer verlässlich und darf das Tippen nicht blockieren."""
         wait = float(self.cfg.get("dialog_wartezeit", 3.0))
-        if not self._wait_for_change(rect, before, wait):
-            return False
+        level, ratio, after = self._watch(rect, before, wait)
+        self.log(f"Dialog-Prüfung: Veränderung {ratio * 100:.1f} % -> {level}")
+        if level == "keins":
+            self._diag("dialog_vorher", before, "(Bild vor dem Doppelklick)")
+            self._diag("dialog_nachher", after, f"(Bild danach, Veränderung {ratio * 100:.1f} %)")
+            return level
         self.sleep(0.6)                     # Dialog fertig aufbauen lassen
+        if level == "schwach":
+            self.post("Dialog nur schwach erkannt - tippe und prüfe danach die Zahl.")
         if self.field_reader is not None:
             nums, text, img = self._read_field(*field)
             if nums:
@@ -154,7 +176,7 @@ class Drawer:
             else:
                 self._diag("vorher_entry", img, text)
                 self.post("Einstiegspreis-Feld nicht lesbar - tippe trotzdem.")
-        return True
+        return level
 
     def _read_field(self, x: int, y: int) -> tuple[list[float], str, object]:
         """(gelesene Zahlen, OCR-Text, Bild) eines Eingabefelds."""
@@ -248,6 +270,8 @@ class Drawer:
         # Aufräumen: ein offener Dialog von vorher würde die Kontrolle täuschen
         self._close_dialogs("offene Dialoge schließen (Start)")
         dialog_open = False
+        dialog_level = "stark"
+        first_typed = True
         last = len(steps) - 1
         for i, st in enumerate(steps):
             x, y = st["punkt"]
@@ -267,10 +291,13 @@ class Drawer:
 
             if opens_dialog:
                 self.post("Prüfe, ob der Einstellungsdialog offen ist ...")
-                if not self._wait_for_dialog(dialog_rect, before, steps[first_type]["punkt"]):
+                dialog_level = self._wait_for_dialog(dialog_rect, before,
+                                                     steps[first_type]["punkt"])
+                if dialog_level == "keins":
                     self._abort("Einstellungsdialog ist nicht aufgegangen - Box wurde nicht "
-                                "getroffen. Nichts getippt.")
+                                "getroffen. Nichts getippt. (Bilder: logs\\ocr_zeichnen_dialog_*.png)")
                 dialog_open = True
+                first_typed = False
 
             if closes_dialog:
                 self.post("Prüfe, ob der Dialog zu ist ...")
@@ -291,6 +318,10 @@ class Drawer:
                 self.guard.type_text(text, st["tippe"])
                 self._leave_field()
                 ok = self._field_ok(x, y, value)
+                if dialog_level == "schwach" and not first_typed and ok is not True:
+                    self._abort("Dialog nur schwach erkannt und die Zahl steht nicht im Feld - "
+                                "vermutlich nichts geöffnet. Abgebrochen.")
+                first_typed = True
                 if ok is False:
                     self.post(f"{st['tippe']}: falsche Zahl im Feld - tippe nochmal ...")
                     self.guard.click(x, y, f"{side} Schritt {i + 1} (nochmal)")

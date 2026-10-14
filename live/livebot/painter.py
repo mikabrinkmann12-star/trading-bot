@@ -18,7 +18,10 @@ def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
     nav = ChartNav(cfg, guard, post=lambda t: post(t, "info"))
 
     def paint(direction: str, entry: float, stop: float, target: float,
-              last_closed: tuple | None = None, prev_closed: tuple | None = None):
+              last_closed: tuple | None = None, prev_closed: tuple | None = None,
+              on_given_candle: bool = False):
+        """last_closed = zuletzt abgeschlossene Kerze; die Box kommt eine Kerze rechts davon
+        (entstehende Kerze). on_given_candle=True: genau auf die übergebene Kerze (Test)."""
         side = "Long" if direction == "long" else "Short"
         anchor = None
         if last_closed is not None and cfg.get("chart"):
@@ -33,8 +36,9 @@ def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
                 chart = cfg["chart"]
                 cands = candle_candidates(ocr.grab(chart), origin=(chart[0], chart[1]),
                                           exclude=exclusion_zones(cfg, exclude_fn()))
-                anchor = (x + (bar_spacing(cands) or 8), nav.price_to_y(entry))
-                post(f"Entstehende Kerze bei x={anchor[0]}.", "info")
+                shift = 0 if on_given_candle else (bar_spacing(cands) or 8)
+                anchor = (x + shift, nav.price_to_y(entry))
+                post(f"Box-Position: x={anchor[0]}, y={anchor[1]}.", "info")
         post(f"Zeichne {side}-Position (Entry {entry:.2f}) ...", "warn")
         drawer.draw(direction, entry, stop, target, anchor=anchor)
         if nav.ready():

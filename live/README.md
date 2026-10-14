@@ -84,4 +84,5 @@ python live.py --auswertung
 | `"dialog_wartezeit"` | `3.0` | so lange wartet er höchstens auf ein Fenster/Dialog |
 
 ## Wenn was nicht geht
+- **„Einstellungsdialog ist nicht aufgegangen“:** Schau in `logs\aktionen.log` nach der Zeile „Dialog-Prüfung: Veränderung … %“. In `logs\` liegen dann zwei Bilder `ocr_zeichnen_dialog_vorher_*.png` und `ocr_zeichnen_dialog_nachher_*.png`. Schick sie mir, falls es wieder passiert. Daran sehe ich, ob die Box verfehlt wurde oder der Dialog nur schwer zu erkennen war.
 Schick die rote Zeile aus dem Bot-Fenster, die letzten Zeilen aus `logs\aktionen.log` und, falls vorhanden, die Bilder `logs\ocr_*.png`.

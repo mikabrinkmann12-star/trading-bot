@@ -259,7 +259,7 @@ def run_draw_test(direction: str, out_dir: str, cfg_path: str = "config.json") -
     time.sleep(3)
     try:
         make_painter(cfg, Guard(cfg, journal), lambda t, l: print(f"  {t}"))(
-            direction, entry, stop, target)
+            direction, entry, stop, target, last_closed=vals, on_given_candle=True)
     except Exception as exc:
         print(f"FEHLER: {exc}")
         return 1
