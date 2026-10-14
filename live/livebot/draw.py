@@ -113,18 +113,58 @@ def strip_lines(gray):
     return out
 
 
+def tight_crop(img):
+    """Nur den Bereich um die Schrift ausschneiden (ohne Feldrahmen und Beschriftungen am
+    Rand), groß skalieren, schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest
+    Tesseract sonst fast nie. -> Bild oder None."""
+    import cv2
+    import numpy as np
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if g.mean() < 127:
+        g = 255 - g
+    dark = g < 140
+    dark[dark.mean(axis=1) > 0.4, :] = False              # waagerechte Rahmenlinien
+    dark[:, dark.mean(axis=0) > 0.6] = False              # senkrechte Rahmenlinien
+    n, _lab, stats, cent = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
+    h = g.shape[0]
+    keep = [i for i in range(1, n)
+            if stats[i, cv2.CC_STAT_HEIGHT] >= 4 and abs(cent[i][1] - h / 2) <= h * 0.3]
+    if not keep:
+        return None
+    x1 = min(stats[i, 0] for i in keep)
+    y1 = min(stats[i, 1] for i in keep)
+    x2 = max(stats[i, 0] + stats[i, 2] for i in keep)
+    y2 = max(stats[i, 1] + stats[i, 3] for i in keep)
+    crop = g[max(0, y1 - 2):y2 + 2, max(0, x1 - 2):x2 + 2]
+    crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+    _, crop = cv2.threshold(crop, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return cv2.copyMakeBorder(crop, 30, 30, 30, 30, cv2.BORDER_CONSTANT, value=255)
+
+
 def _default_field_reader(img) -> str:
-    """Mehrere Vorverarbeitungen probieren (Rahmen und grauer Hintergrund stören)."""
+    """Mehrere Vorverarbeitungen probieren (Rahmen und grauer Hintergrund stören), dazu
+    immer eine Lesung des eng ausgeschnittenen Texts. Beide Ergebnisse kommen zurück (durch
+    ' | ' getrennt) - die Kontrolle ist zufrieden, wenn EINE davon die richtige Zahl zeigt."""
     import pytesseract
 
     from .ocr import preprocess
+    wl = "-c tessedit_char_whitelist=0123456789.,"
+    texts = []
     for scale, thr, psm in ((3, False, 7), (3, True, 7), (4, False, 6), (2, False, 7)):
-        text = pytesseract.image_to_string(
-            strip_lines(preprocess(img, scale, thr)),
-            config=f"--psm {psm} -c tessedit_char_whitelist=0123456789.,")
+        text = pytesseract.image_to_string(strip_lines(preprocess(img, scale, thr)),
+                                           config=f"--psm {psm} {wl}")
         if numbers_in(text):
-            return text
-    return ""
+            texts.append(text.strip())
+            break
+    try:
+        tight = tight_crop(img)
+    except Exception:
+        tight = None
+    if tight is not None:
+        text = pytesseract.image_to_string(tight, config=f"--psm 7 {wl}").strip()
+        if numbers_in(text):
+            texts.append(text)
+    return " | ".join(texts)
 
 
 def _default_snap(rect):
@@ -198,10 +238,10 @@ class Drawer:
         if self.field_reader is not None:
             nums, text, img = self._read_field(*field)
             if nums:
-                self.log(f"Dialog offen, Einstiegspreis-Feld zeigt {nums[0]:.2f}")
+                self.log(f"Dialog offen, erstes Feld zeigt {text!r}")
             else:
                 self._diag("vorher_entry", img, text)
-                self.post("Einstiegspreis-Feld nicht lesbar - tippe trotzdem.")
+                self.post("Erstes Feld vor dem Tippen nicht lesbar - tippe trotzdem.")
         return level
 
     def _read_field(self, x: int, y: int) -> tuple[list[float], str, object]:

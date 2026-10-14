@@ -92,4 +92,23 @@ def test_eingabefeld_mit_rahmen_lesen(value):
     d.rectangle((60, 4, 210, 28), fill=(255, 255, 255), outline=(0, 0, 0))
     d.text((64, 8), value, font=font, fill=(0, 0, 0))
     text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
-    assert numbers_in(text) == [float(value.replace(",", "."))]
+    nums = numbers_in(text)
+    assert nums and all(n == pytest.approx(float(value.replace(",", "."))) for n in nums), text
+
+
+@pytest.mark.parametrize("value", ["1", "2", "7", "10", "1.5", "29053.50"])
+@pytest.mark.parametrize("dark", [False, True])
+def test_kleine_zahl_im_feld_lesen(value, dark):
+    """Mengenfeld: eine einzelne Ziffer in einem breiten Feld, oben ragt eine Beschriftung
+    hinein (wie 'KAUFEN' über dem Feld)."""
+    from replaybot.draw import _default_field_reader, numbers_loose
+    font = ImageFont.truetype(FONT, 13)
+    bg, field, fg = ((30, 34, 45), (19, 23, 34), (220, 220, 220)) if dark else (
+        (217, 217, 217), (255, 255, 255), (0, 0, 0))
+    img = Image.new("RGB", (220, 32), bg)
+    d = ImageDraw.Draw(img)
+    d.text((2, -9), "KAUFEN", font=font, fill=fg)
+    d.rectangle((4, 6, 214, 30), fill=field, outline=(120, 120, 120))
+    d.text((10, 10), value, font=font, fill=fg)
+    text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
+    assert float(value) in numbers_loose(text), text
