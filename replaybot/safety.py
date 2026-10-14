@@ -133,6 +133,21 @@ class Guard:
         self._done(f"{'Doppelklick' if double else 'Klick'} {what} ({x}, {y})")
         self.backend.click(x, y, double)
 
+    def click_in(self, region: str, x: int, y: int, what: str, double: bool = False):
+        """Klick irgendwo INNERHALB eines kalibrierten Bereichs (z.B. auf die aktuelle Kerze)."""
+        rect = self.cfg.get(region)
+        why = self._budget()
+        if not why and not rect:
+            why = f"Bereich '{region}' ist nicht kalibriert"
+        if not why and not in_rect(x, y, rect):
+            why = f"Punkt ({x}, {y}) liegt nicht im Bereich '{region}'"
+        if not why:
+            why = self._window_at(x, y)
+        if why:
+            self._refuse(f"{what} ({x}, {y})", why)
+        self._done(f"{'Doppelklick' if double else 'Klick'} {what} ({x}, {y}) in '{region}'")
+        self.backend.click(x, y, double)
+
     def click_next(self):
         if not self.cfg.get("naechste_kerze"):
             raise SafetyError("'Nächste Kerze' ist nicht kalibriert")

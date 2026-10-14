@@ -77,6 +77,24 @@ class ChartNav:
         self.sleep = sleep
         self.post = post
 
+    def scale(self) -> tuple[float, float] | None:
+        try:
+            return fit_scale(self.labels_fn())
+        except Exception:
+            return None
+
+    def price_to_y(self, price: float) -> int | None:
+        """Bildschirm-y eines Preises, begrenzt auf den Chart (5 % Rand)."""
+        if not self.ready():
+            return None
+        sc = self.scale()
+        if sc is None:
+            return None
+        a, b = sc
+        _l, top, _w, h = self.cfg["chart"]
+        y = (price - b) / a
+        return int(max(top + 0.05 * h, min(top + 0.95 * h, y)))
+
     def ready(self) -> bool:
         return bool(self.cfg.get("preisachse") and self.cfg.get("chart"))
 

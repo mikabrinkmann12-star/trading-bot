@@ -68,6 +68,12 @@ class StatusWindow:
     def set_status(self, text: str, level: str = "info"):
         self.status.config(text=text, fg=COLORS.get(level, COLORS["info"]))
 
+    def rect(self) -> tuple[int, int, int, int]:
+        """Bildschirm-Rechteck inkl. Titelleiste (großzügig)."""
+        r = self.root
+        return (r.winfo_rootx() - 10, r.winfo_rooty() - 40,
+                r.winfo_width() + 20, r.winfo_height() + 50)
+
     def after(self, ms: int, fn):
         self.root.after(ms, fn)
 

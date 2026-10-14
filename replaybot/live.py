@@ -188,18 +188,35 @@ def install_f12(journal: Journal):
     keyboard.add_hotkey("f12", kill)
 
 
-def make_painter(cfg: dict, guard, post: Callable[[str, str], None]):
-    """Liefert on_fill(engine): Position einzeichnen + so zoomen, dass sie sichtbar ist."""
+def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
+                 exclude_fn: Callable[[], list] = lambda: []):
+    """Liefert paint(...): Position an der aktuellen Kerze einzeichnen + so zoomen,
+    dass sie sichtbar ist."""
+    from . import ocr
+    from .candlefind import locate_current_candle
     from .chartnav import ChartNav
     from .draw import Drawer
 
     drawer = Drawer(cfg, guard)
     nav = ChartNav(cfg, guard, post=lambda t: post(t, "info"))
 
-    def paint(direction: str, entry: float, stop: float, target: float):
+    def paint(direction: str, entry: float, stop: float, target: float,
+              current: tuple | None = None):
         side = "Long" if direction == "long" else "Short"
+        anchor = None
+        if current is not None and cfg.get("chart"):
+            post("Suche die aktuelle Kerze im Chart ...", "info")
+            x, why = locate_current_candle(
+                cfg, current, grab=ocr.grab, read_ohlc=ocr.read_ohlc,
+                move=lambda mx, my: guard.move_to(mx, my, "Kerze prüfen (Hover)"),
+                sleep=time.sleep, exclude=exclude_fn())
+            if x is None:
+                post(f"Aktuelle Kerze nicht gefunden ({why}) - Box an der aufgenommenen "
+                     f"Stelle.", "warn")
+            else:
+                anchor = (x, nav.price_to_y(entry))
         post(f"Zeichne {side}-Position (Entry {entry:.2f}) ...", "warn")
-        drawer.draw(direction, entry, stop, target)
+        drawer.draw(direction, entry, stop, target, anchor=anchor)
         if nav.ready():
             span = abs(target - stop)
             lo, hi = min(stop, target) - 0.1 * span, max(stop, target) + 0.1 * span
@@ -248,10 +265,16 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         vals, text = ocr.read_ohlc(img)
         return vals, text, img
 
+    ui = {"fenster": None}      # Rechteck des Bot-Fensters (beim Kerzensuchen ausblenden)
     on_fill = None
     if zeichnen:
-        painter = make_painter(cfg, guard, lambda t, lvl: q.put((STATUS, (t, lvl))))
-        on_fill = lambda e: painter(e.direction, e.entry, e.stop, e.target)  # noqa: E731
+        painter = make_painter(cfg, guard, lambda t, lvl: q.put((STATUS, (t, lvl))),
+                               exclude_fn=lambda: [ui["fenster"]])
+
+        def paint_fill(e: StrategyEngine):
+            c = e.candles[-1]
+            painter(e.direction, e.entry, e.stop, e.target, current=(c.o, c.h, c.l, c.c))
+        on_fill = paint_fill
 
     reader = LiveReader(
         engine, journal, read_fn=read_fn, post=lambda k, p: q.put((k, p)),
@@ -271,6 +294,7 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
                        f"Maus nicht über den Chart.")
 
     def pump():
+        ui["fenster"] = win.rect()
         try:
             while True:
                 kind, payload = q.get_nowait()
@@ -332,7 +356,7 @@ def run_draw_test(direction: str, out_dir: str, cfg_path: str = "config.json") -
     journal.log_action(f"Zeichnen-Test {direction}")
     painter = make_painter(cfg, Guard(cfg, journal), lambda t, lvl: print(f"  {t}"))
     try:
-        painter(direction, entry, stop, target)
+        painter(direction, entry, stop, target, current=vals)
     except Exception as exc:
         print(f"FEHLER: {exc}")
         return 1

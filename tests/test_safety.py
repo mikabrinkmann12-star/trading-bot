@@ -106,3 +106,14 @@ def test_tippen_nur_wenn_tradingview_vorne(tmp_path):
     with pytest.raises(SafetyError):
         g2.press("esc", "x")
     assert calls2 == []
+
+
+def test_click_in_bereich(tmp_path):
+    g, calls = make(tmp_path)
+    g.click_in("chart", 1333, 555, "Box", double=True)
+    assert calls == [("dclick", 1333, 555)]
+    with pytest.raises(SafetyError):
+        g.click_in("chart", 1580, 555, "außerhalb")
+    with pytest.raises(SafetyError):
+        g.click_in("gibtsnicht", 100, 100, "x")
+    assert len(calls) == 1

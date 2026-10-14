@@ -101,6 +101,8 @@ python bot.py --zeichnen-test long
 ```
 Der Bot zeichnet eine Beispiel-Box: Entry = aktueller Kurs, Stop 20 Punkte drunter, Ziel 40 Punkte drüber. Prüf dann, ob die Box da ist, die Zahlen stimmen und alles sichtbar ist.
 
+**Wo kommt die Box hin?** An die **aktuelle Kerze** (die Füll-Kerze), mit der Mittellinie auf dem Entry-Preis. Der Bot sucht die neueste blaue oder schwarze Kerze im Chart, fährt kurz mit der Maus drüber und prüft an der Legende, ob es wirklich die aktuelle Kerze ist. Findet er sie nicht, kommt die Box an die Stelle, die du beim Vormachen angeklickt hast, und im Fenster steht eine Warnung.
+
 **3. Im Auto-Lauf:**
 ```
 python bot.py --live --auto --zeichnen --datum 2026-09-25
