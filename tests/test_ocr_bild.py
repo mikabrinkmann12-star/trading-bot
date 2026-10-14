@@ -79,3 +79,18 @@ def test_preisachse_lesen(ppp, dark, monkeypatch):
     a, b = chartnav.fit_scale(chartnav.read_axis_labels([1600, 80, 70, 800]))
     assert a == pytest.approx(-ppp, rel=0.01)
     assert a * 480 + b == pytest.approx(30868.0, abs=2)
+
+
+@pytest.mark.parametrize("value", ["28962,25", "30915,50", "31008,00"])
+def test_eingabefeld_mit_rahmen_lesen(value):
+    """Wie ein Feld im TradingView-Dialog: grauer Hintergrund, weißes Feld mit Rahmen, Cursor."""
+    from replaybot.draw import _default_field_reader, numbers_in
+    font = ImageFont.truetype(FONT, 13)
+    img = Image.new("RGB", (220, 32), (217, 217, 217))
+    d = ImageDraw.Draw(img)
+    d.rectangle((60, 4, 210, 28), fill=(255, 255, 255), outline=(0, 0, 0))
+    d.text((64, 8), value, font=font, fill=(0, 0, 0))
+    x_end = 64 + d.textlength(value, font=font) + 1
+    d.line((x_end, 7, x_end, 25), fill=(0, 0, 0), width=2)
+    text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
+    assert numbers_in(text) == [float(value.replace(",", "."))]

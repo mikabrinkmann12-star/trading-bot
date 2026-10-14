@@ -117,3 +117,16 @@ def test_click_in_bereich(tmp_path):
     with pytest.raises(SafetyError):
         g.click_in("gibtsnicht", 100, 100, "x")
     assert len(calls) == 1
+
+
+def test_nie_doppelklick_an_der_preisachse(tmp_path):
+    cfg = dict(CFG, ablaeufe={"long": [{"punkt": [1590, 400], "doppel": True, "tippe": None}]})
+    be = FakeBackend()
+    g = Guard(cfg, Journal(tmp_path), backend=be, window_fn=lambda x, y: ("TradingView", ""),
+              foreground_fn=lambda: ("TradingView", ""))
+    with pytest.raises(SafetyError, match="Auto"):
+        g.click(1590, 400, "aufgenommen, aber zu nah an der Achse", double=True)
+    with pytest.raises(SafetyError):
+        g.click_in("chart", 1595, 400, "auf der Achse")
+    g.click_in("chart", 1500, 400, "weit genug weg", double=True)
+    assert be.calls == [("dclick", 1500, 400)]

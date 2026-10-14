@@ -2,7 +2,8 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-from replaybot.candlefind import (find_last_candle_x, legend_zone,  # noqa: E402
+from replaybot.candlefind import (bar_spacing, candle_candidates,  # noqa: E402
+                                  exclusion_zones, find_last_candle_x, legend_zone,
                                   locate_current_candle)
 
 BLUE = (255, 98, 41)      # BGR von #2962FF
@@ -68,30 +69,72 @@ def test_leerer_chart():
     assert find_last_candle_x(img, origin=CHART[:2]) is None
 
 
-def test_gegenprobe_schiebt_nach_rechts():
-    """Bilderkennung trifft 4 px zu weit links - Legende passt erst bei +4."""
+def axis_text(img, x_local=960):
+    """Schwarze Zahlen der Preisachse ganz rechts im Bild (senkrechte Striche, 9 px hoch)."""
+    for y in range(40, 560, 40):
+        img[y:y + 9, x_local:x_local + 30:3] = BLACK
+    return img
+
+
+AXIS = (CHART[0] + 950, CHART[1], 60, CHART[3])
+CFG = {"chart": CHART, "legende": LEGEND, "preisachse": AXIS}
+
+
+class FakeTV:
+    """Hover-Legende wie in TradingView: über einer Kerze deren Werte, sonst (leere Fläche,
+    Preisachse) die Werte der letzten Kerze."""
+
+    def __init__(self, img, xs):
+        self.img, self.xs, self.x = img, xs, 0
+
+    def vals(self, i):
+        return (float(i), float(i) + 1, float(i) - 1, float(i) + 0.5)
+
+    def grab(self, rect):
+        return self.img if tuple(rect) == CHART else "legende"
+
+    def read(self, _img):
+        near = min(range(len(self.xs)), key=lambda i: abs(self.xs[i] - self.x))
+        if abs(self.xs[near] - self.x) <= 8:
+            return self.vals(near), ""
+        return self.vals(len(self.xs) - 1), ""
+
+    def move(self, x, y):
+        self.x = x
+
+
+def test_preisachse_ist_keine_kerze():
+    img = axis_text(chart_img(CANDLES))
+    assert find_last_candle_x(img, origin=CHART[:2]) > CHART[0] + 950    # ohne Ausblenden: Achse
+    cands = candle_candidates(img, origin=CHART[:2], exclude=exclusion_zones(CFG))
+    assert cands[0] == CHART[0] + 680
+    assert bar_spacing(cands) == 20
+
+
+def test_gegenprobe_verwirft_falschen_kandidaten():
+    """Auch wenn ein falscher Kandidat rechts liegt (hier: nicht ausgeblendete Achse), wird er
+    verworfen, weil links daneben nicht die vorherige Kerze kommt."""
+    img = axis_text(chart_img(CANDLES))
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+    tv = FakeTV(img, xs)
+    cfg = {"chart": CHART, "legende": LEGEND}          # ohne Preisachse -> Achse ist Kandidat
+    x, why = locate_current_candle(cfg, tv.vals(29), tv.vals(28), grab=tv.grab,
+                                   read_ohlc=tv.read, move=tv.move, sleep=lambda s: None)
+    assert x == CHART[0] + 680 and why == ""
+
+
+def test_gegenprobe_ohne_vorherige_kerze():
     img = chart_img(CANDLES)
-    target = CHART[0] + 684
-    pos = {"x": 0}
-
-    def grab(rect):
-        return img if rect == list(CHART) or rect == CHART else "legende"
-
-    def read(_img):
-        return ((1.0, 2.0, 0.5, 1.5) if pos["x"] >= target else (9.0, 9.0, 9.0, 9.0)), ""
-
-    def move(x, y):
-        pos["x"] = x
-    cfg = {"chart": CHART, "legende": LEGEND}
-    x, why = locate_current_candle(cfg, (1.0, 2.0, 0.5, 1.5), grab=grab, read_ohlc=read,
-                                   move=move, sleep=lambda s: None)
-    assert x == target and why == ""
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+    tv = FakeTV(img, xs)
+    x, _ = locate_current_candle(CFG, tv.vals(29), None, grab=tv.grab, read_ohlc=tv.read,
+                                 move=tv.move, sleep=lambda s: None)
+    assert x == CHART[0] + 680
 
 
 def test_gegenprobe_scheitert():
     img = chart_img(CANDLES)
-    cfg = {"chart": CHART, "legende": LEGEND}
     x, why = locate_current_candle(
-        cfg, (1.0, 2.0, 0.5, 1.5), grab=lambda r: img if r == CHART else None,
+        CFG, (1.0, 2.0, 0.5, 1.5), None, grab=lambda r: img if tuple(r) == CHART else None,
         read_ohlc=lambda i: (None, ""), move=lambda x, y: None, sleep=lambda s: None)
     assert x is None and "Legende" in why

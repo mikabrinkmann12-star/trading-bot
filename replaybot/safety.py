@@ -118,6 +118,20 @@ class Guard:
             return f"Punkt ({x}, {y}) ist nicht kalibriert"
         return self._window_at(x, y)
 
+    def _near_axis(self, x: int, y: int, margin: int = 25) -> bool:
+        axis = self.cfg.get("preisachse")
+        if not axis:
+            return False
+        left, top, w, h = axis
+        return left - margin <= x < left + w + margin and top - margin <= y < top + h + margin
+
+    def _axis_rule(self, x: int, y: int, double: bool) -> str:
+        """Ein Doppelklick auf die Preisachse stellt TradingView auf Auto - nie erlaubt."""
+        if double and self._near_axis(x, y):
+            return (f"Doppelklick bei ({x}, {y}) liegt an der Preisachse - das würde den Chart "
+                    f"auf Auto stellen")
+        return ""
+
     def _refuse(self, what: str, why: str):
         self.journal.log_action(f"VERWEIGERT {what}: {why}")
         raise SafetyError(why)
@@ -128,7 +142,7 @@ class Guard:
 
     # ------------------------------------------------------------ Aktionen
     def click(self, x: int, y: int, what: str, double: bool = False):
-        if why := self.check(x, y):
+        if why := (self._axis_rule(x, y, double) or self.check(x, y)):
             self._refuse(f"{what} ({x}, {y})", why)
         self._done(f"{'Doppelklick' if double else 'Klick'} {what} ({x}, {y})")
         self.backend.click(x, y, double)
@@ -141,6 +155,10 @@ class Guard:
             why = f"Bereich '{region}' ist nicht kalibriert"
         if not why and not in_rect(x, y, rect):
             why = f"Punkt ({x}, {y}) liegt nicht im Bereich '{region}'"
+        if not why and self._near_axis(x, y, margin=8):
+            why = f"Punkt ({x}, {y}) liegt auf der Preisachse"
+        if not why:
+            why = self._axis_rule(x, y, double)
         if not why:
             why = self._window_at(x, y)
         if why:

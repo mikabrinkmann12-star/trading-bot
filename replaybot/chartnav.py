@@ -103,31 +103,41 @@ class ChartNav:
         a, b = sc
         return a * (top + 0.95 * h) + b, a * (top + 0.05 * h) + b   # (unten, oben)
 
-    def ensure_visible(self, lo: float, hi: float, rounds: int = 8) -> bool:
+    def ensure_visible(self, lo: float, hi: float, rounds: int = 10,
+                       fill_min: float = 0.45, fill_max: float = 0.8) -> bool:
+        """Zoomen/verschieben, bis lo..hi sichtbar ist UND etwa die Hälfte bis 80 % der
+        Höhe füllt. Nach jeder Aktion wird die Achse neu gelesen (Kontrolle)."""
+        import math
         ax_l, ax_t, ax_w, ax_h = self.cfg["preisachse"]
         ch_l, ch_t, ch_w, ch_h = self.cfg["chart"]
+        wait = float(self.cfg.get("zoom_pause", 1.0))   # > Doppelklick-Zeit von Windows
         prev = None
         force_zoom = False
         for _ in range(rounds):
-            sc = fit_scale(self.labels_fn())
+            sc = self.scale()
             if sc is None:
                 self.post("Preisachse nicht lesbar - Zoom übersprungen.")
                 return False
             bottom, top = self._visible(sc)
-            if lo >= bottom and hi <= top:
+            have, need = top - bottom, hi - lo
+            fill = need / have if have > 0 else 9.0
+            inside = lo >= bottom and hi <= top
+            if inside and fill_min <= fill <= fill_max:
                 return True
             if prev is not None and abs(prev[0] - sc[0]) < 1e-9 and abs(prev[1] - sc[1]) < 1e-6:
                 force_zoom = True              # letzte Aktion hat nichts bewirkt (Auto-Skala?)
             prev = sc
-            have, need = top - bottom, hi - lo
             x_ax = ax_l + ax_w // 2
             y_mid = ax_t + ax_h // 2
-            if need > have * 0.95 or force_zoom:
-                ratio = need / have if have > 0 else 2.0
-                px = int(min(ax_h * 0.35, max(25, ax_h * 0.12 * ratio)))
-                self.post("Zoome raus ...")
-                self.guard.drag(x_ax, y_mid - px // 2, x_ax, y_mid + px // 2,
-                                "preisachse", "Zoom raus (Preisachse runter)")
+            if fill > fill_max or fill < fill_min or force_zoom:
+                goal = (fill_min + fill_max) / 2
+                px = int(min(ax_h * 0.35, max(15, abs(math.log(max(fill, 0.01) / goal))
+                                              * ax_h * 0.3)))
+                zoom_out = fill > goal or (force_zoom and fill >= fill_min)
+                dy = px if zoom_out else -px   # runter = raus, hoch = ran
+                self.post("Zoome raus ..." if zoom_out else "Zoome ran ...")
+                self.guard.drag(x_ax, y_mid - dy // 2, x_ax, y_mid + dy // 2, "preisachse",
+                                "Zoom raus (Achse runter)" if zoom_out else "Zoom ran (Achse hoch)")
                 force_zoom = False
             else:
                 a, b = sc
@@ -139,8 +149,8 @@ class ChartNav:
                 y0 = int(ch_t + ch_h / 2 - dy / 2)
                 self.post("Verschiebe Chart ...")
                 self.guard.drag(x0, y0, x0, int(y0 + dy), "chart", "Chart senkrecht verschieben")
-            self.sleep(0.5)
-        sc = fit_scale(self.labels_fn())
+            self.sleep(wait)
+        sc = self.scale()
         if sc is None:
             return False
         bottom, top = self._visible(sc)

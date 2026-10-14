@@ -101,7 +101,24 @@ python bot.py --zeichnen-test long
 ```
 Der Bot zeichnet eine Beispiel-Box: Entry = aktueller Kurs, Stop 20 Punkte drunter, Ziel 40 Punkte drüber. Prüf dann, ob die Box da ist, die Zahlen stimmen und alles sichtbar ist.
 
-**Wo kommt die Box hin?** An die **aktuelle Kerze** (die Füll-Kerze), mit der Mittellinie auf dem Entry-Preis. Der Bot sucht die neueste blaue oder schwarze Kerze im Chart, fährt kurz mit der Maus drüber und prüft an der Legende, ob es wirklich die aktuelle Kerze ist. Findet er sie nicht, kommt die Box an die Stelle, die du beim Vormachen angeklickt hast, und im Fenster steht eine Warnung.
+**Wo kommt die Box hin?** An die **aktuelle Kerze** (die Füll-Kerze), mit der Mittellinie auf dem Entry-Preis.
+
+**Was der Bot dabei prüft**, bevor er weitermacht:
+1. **Kerze finden:** Er sucht die rechteste blaue oder schwarze Kerze. Preisachse, Zeitachse, Legende und sein eigenes Fenster blendet er aus. Dann fährt er mit der Maus drauf: Die Legende muss die **aktuelle** Kerze zeigen, und eine Kerze weiter links die **vorherige**. Erst dann ist sie bestätigt. Findet er sie nicht, zeichnet er **nichts** und meldet es.
+2. **Box anlegen:** Klick auf die Kerze, Doppelklick knapp rechts daneben auf die Entry-Linie.
+3. **Dialog offen?** Erst wenn sich das Bild dort verändert hat, wo die Felder sind, wird getippt. Sonst drückt er Esc und bricht ab. Er tippt also nie in den Chart.
+4. **Zahl richtig?** Nach jedem Feld liest er die Zahl zurück. Ist sie falsch, tippt er nochmal. Ist sie beim zweiten Mal wieder falsch, bricht er ab.
+5. **Zoom:** Die Position (Stop bis Ziel) soll **etwa die Hälfte bis 80 %** der Chart-Höhe füllen. Ist sie zu klein, zieht er die Preisachse hoch (ran), ist sie zu groß, zieht er sie runter (raus). Danach richtet er sie mittig aus. Nach jedem Zug liest er die Achse neu.
+6. **Nie Auto:** Doppelklicks an der Preisachse sind gesperrt, denn die würden den Chart auf „An Bildschirm anpassen“ stellen.
+
+Einstellbar in `config.json`, falls TradingView bei dir langsamer ist:
+
+| Eintrag | Standard | Bedeutung |
+|---|---|---|
+| `"zeichnen_pause"` | `1.0` | Sekunden Pause nach jedem Schritt beim Einzeichnen |
+| `"dialog_wartezeit"` | `3.0` | So lange wartet er höchstens, bis der Dialog offen ist |
+| `"zoom_pause"` | `1.0` | Pause nach jedem Zoom-Zug |
+| `"doppelklick_versatz"` | `12` | So viele Pixel rechts vom Ankerpunkt macht er den Doppelklick |
 
 **3. Im Auto-Lauf:**
 ```

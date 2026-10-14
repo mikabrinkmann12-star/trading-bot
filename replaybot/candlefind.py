@@ -1,8 +1,13 @@
-"""Die neueste (rechteste) Kerze im Chart-Screenshot finden.
+"""Die neueste (rechteste) Kerze im Chart finden - mit Gegenprobe.
 
-Kerzen sind bei dir blau (bullisch) oder schwarz (bärisch). Gesucht wird die rechteste
-Spalte mit mindestens `min_run` zusammenhängenden Kerzenpixeln - so fallen die gepunktete
-Kurslinie (1-2 px pro Spalte), der hellblaue Sitzungs-Hintergrund und graue Texte raus.
+Kerzen sind bei dir blau (bullisch) oder schwarz (bärisch). Kandidaten sind Spalten mit
+mindestens `min_run` zusammenhängenden Kerzenpixeln. Weil auch Zahlen (Preis-/Zeitachse)
+schwarz sind, wird jeder Kandidat per Maus-Hover geprüft:
+  - Maus auf den Kandidaten  -> Legende muss die AKTUELLE Kerze zeigen
+  - Maus eine Kerze weiter links -> Legende muss die VORHERIGE Kerze zeigen
+Erst wenn beides stimmt, ist es wirklich die letzte Kerze. (Über leeren Flächen oder der
+Preisachse zeigt TradingView auch die letzte Kerze an - deshalb reicht die erste Probe allein
+nicht.)
 """
 from __future__ import annotations
 
@@ -31,10 +36,7 @@ def longest_runs(mask):
     return best
 
 
-def find_last_candle_x(img, origin: tuple[int, int] = (0, 0), exclude: list[Rect] = (),
-                       min_run: int = 5) -> int | None:
-    """Bildschirm-x der Mitte der rechtesten Kerze, oder None."""
-    import numpy as np
+def _masked(img, origin, exclude):
     mask = candle_mask(img)
     ox, oy = origin
     h, w = mask.shape
@@ -46,17 +48,41 @@ def find_last_candle_x(img, origin: tuple[int, int] = (0, 0), exclude: list[Rect
         x2, y2 = min(w, left - ox + rw), min(h, top - oy + rh)
         if x1 < x2 and y1 < y2:
             mask[y1:y2, x1:x2] = False
-    runs = longest_runs(mask)
-    cols = np.nonzero(runs >= min_run)[0]
-    if len(cols) == 0:
-        return None
-    right = int(cols[-1])
-    left = right
-    while left - 1 >= 0 and runs[left - 1] >= 2:      # Körper links vom Docht dazunehmen
-        left -= 1
-    while right + 1 < w and runs[right + 1] >= 2:
-        right += 1
-    return ox + (left + right) // 2
+    return mask
+
+
+def candle_candidates(img, origin: tuple[int, int] = (0, 0), exclude: list[Rect] = (),
+                      min_run: int = 5) -> list[int]:
+    """Bildschirm-x aller Kerzen-Kandidaten, von RECHTS nach LINKS."""
+    runs = longest_runs(_masked(img, origin, exclude))
+    w = len(runs)
+    strong = runs >= min_run
+    out: list[int] = []
+    x = w - 1
+    while x >= 0:
+        if not strong[x]:
+            x -= 1
+            continue
+        right = x
+        while right + 1 < w and runs[right + 1] >= 2:
+            right += 1
+        left = x
+        while left - 1 >= 0 and runs[left - 1] >= 2:
+            left -= 1
+        out.append(origin[0] + (left + right) // 2)
+        x = left - 1
+    return out
+
+
+def find_last_candle_x(img, origin=(0, 0), exclude=(), min_run: int = 5) -> int | None:
+    c = candle_candidates(img, origin, exclude, min_run)
+    return c[0] if c else None
+
+
+def bar_spacing(cands: list[int]) -> int | None:
+    """Typischer Abstand zwischen Kerzen (Median der Abstände der rechten Kandidaten)."""
+    gaps = sorted(a - b for a, b in zip(cands, cands[1:12]) if 2 <= a - b <= 80)
+    return gaps[len(gaps) // 2] if gaps else None
 
 
 def legend_zone(legend: Rect | None, chart: Rect) -> Rect | None:
@@ -68,29 +94,56 @@ def legend_zone(legend: Rect | None, chart: Rect) -> Rect | None:
     return (c_left, c_top, (left + w + 250) - c_left, (top + h + 60) - c_top)
 
 
-def locate_current_candle(cfg: dict, current: tuple, *, grab, read_ohlc, move,
-                          sleep, exclude: list[Rect] = (), max_shift: int = 60,
-                          step: int = 2) -> tuple[int | None, str]:
-    """x der aktuellen Kerze finden und per Legende gegenprüfen.
+def exclusion_zones(cfg: dict, extra: list[Rect] = ()) -> list[Rect]:
+    """Alles, was schwarz/blau ist, aber keine Kerze: Legende, Preisachse (+ alles rechts
+    davon), Zeitachse unten im Chart-Rechteck, Bot-Fenster."""
+    chart = cfg["chart"]
+    zones: list[Rect] = [legend_zone(cfg.get("legende"), chart)]
+    c_left, c_top, c_w, c_h = chart
+    axis = cfg.get("preisachse")
+    if axis:
+        a_left = axis[0] - 8
+        zones.append((a_left, c_top - 50, c_left + c_w - a_left + 50, c_h + 100))
+    zones.append((c_left, c_top + c_h - 30, c_w, 40))       # Zeitachsen-Zahlen
+    zones.extend(r for r in extra if r)
+    return [z for z in zones if z]
 
-    current = (O, H, L, C) der aktuellen Kerze. move(x, y) bewegt die Maus (Hover),
-    read_ohlc(img) liest die Legende. Rückgabe (x, '') oder (None, Grund)."""
+
+def _same(a, b) -> bool:
+    return a is not None and b is not None and all(abs(x - y) < 0.01 for x, y in zip(a, b))
+
+
+def locate_current_candle(cfg: dict, current: tuple, previous: tuple | None = None, *,
+                          grab, read_ohlc, move, sleep, exclude: list[Rect] = (),
+                          max_candidates: int = 12, hover_pause: float = 0.4
+                          ) -> tuple[int | None, str]:
+    """x der aktuellen Kerze finden und doppelt gegenprüfen. Rückgabe (x, '') oder (None, Grund)."""
     chart = cfg.get("chart")
     if not chart:
         return None, "Chart-Bereich nicht kalibriert"
-    zones = [legend_zone(cfg.get("legende"), chart), *exclude]
-    x0 = find_last_candle_x(grab(chart), origin=(chart[0], chart[1]), exclude=zones)
-    if x0 is None:
+    cands = candle_candidates(grab(chart), origin=(chart[0], chart[1]),
+                              exclude=exclusion_zones(cfg, list(exclude)))
+    if not cands:
         return None, "keine Kerze im Chart gefunden"
+    spacing = bar_spacing(cands) or 8
     y = chart[1] + chart[3] // 2
-    right_edge = chart[0] + chart[2] - 1
-    for dx in range(0, max_shift + 1, step):
-        x = x0 + dx
-        if x > right_edge:
-            break
+
+    def legend_at(x):
         move(x, y)
-        sleep(0.15)
-        vals, _text = read_ohlc(grab(cfg["legende"]))
-        if vals and all(abs(a - b) < 0.01 for a, b in zip(vals, current)):
+        sleep(hover_pause)
+        vals, _ = read_ohlc(grab(cfg["legende"]))
+        return vals
+
+    for i, x in enumerate(cands[:max_candidates]):
+        if not _same(legend_at(x), current):
+            continue
+        # eine Kerze weiter links = der nächste Kandidat links davon (falls plausibel)
+        step = x - cands[i + 1] if i + 1 < len(cands) and 3 <= x - cands[i + 1] <= 80 \
+            else spacing
+        left_vals = legend_at(x - step)
+        ok = _same(left_vals, previous) if previous else (left_vals is not None
+                                                          and not _same(left_vals, current))
+        if ok:
             return x, ""
-    return None, "Legende zeigt beim Drüberfahren nicht die aktuelle Kerze"
+    return None, ("Legende bestätigt keine Kerze (weder aktuelle Kerze an der Stelle noch "
+                  "vorherige Kerze links daneben)")

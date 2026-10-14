@@ -197,24 +197,24 @@ def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
     from .chartnav import ChartNav
     from .draw import Drawer
 
-    drawer = Drawer(cfg, guard)
+    drawer = Drawer(cfg, guard, post=lambda t: post(t, "info"))
     nav = ChartNav(cfg, guard, post=lambda t: post(t, "info"))
 
     def paint(direction: str, entry: float, stop: float, target: float,
-              current: tuple | None = None):
+              current: tuple | None = None, previous: tuple | None = None):
         side = "Long" if direction == "long" else "Short"
         anchor = None
         if current is not None and cfg.get("chart"):
             post("Suche die aktuelle Kerze im Chart ...", "info")
             x, why = locate_current_candle(
-                cfg, current, grab=ocr.grab, read_ohlc=ocr.read_ohlc,
+                cfg, current, previous, grab=ocr.grab, read_ohlc=ocr.read_ohlc,
                 move=lambda mx, my: guard.move_to(mx, my, "Kerze prüfen (Hover)"),
                 sleep=time.sleep, exclude=exclude_fn())
             if x is None:
-                post(f"Aktuelle Kerze nicht gefunden ({why}) - Box an der aufgenommenen "
-                     f"Stelle.", "warn")
-            else:
-                anchor = (x, nav.price_to_y(entry))
+                # Lieber gar nicht zeichnen als an der falschen Stelle
+                raise RuntimeError(f"Aktuelle Kerze nicht gefunden: {why}. Nichts gezeichnet.")
+            anchor = (x, nav.price_to_y(entry))
+            post(f"Aktuelle Kerze bei x={x} bestätigt.", "info")
         post(f"Zeichne {side}-Position (Entry {entry:.2f}) ...", "warn")
         drawer.draw(direction, entry, stop, target, anchor=anchor)
         if nav.ready():
@@ -273,7 +273,9 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
 
         def paint_fill(e: StrategyEngine):
             c = e.candles[-1]
-            painter(e.direction, e.entry, e.stop, e.target, current=(c.o, c.h, c.l, c.c))
+            p = e.candles[-2] if len(e.candles) > 1 else None
+            painter(e.direction, e.entry, e.stop, e.target, current=(c.o, c.h, c.l, c.c),
+                    previous=(p.o, p.h, p.l, p.c) if p else None)
         on_fill = paint_fill
 
     reader = LiveReader(

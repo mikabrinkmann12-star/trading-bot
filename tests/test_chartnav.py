@@ -62,10 +62,25 @@ def nav(chart):
                     labels_fn=chart.labels, sleep=lambda s: None)
 
 
-def test_schon_sichtbar_nichts_tun():
-    ch = FakeChart(30868.0, 0.6)          # sichtbar ca. 30628 - 31108
-    assert nav(ch).ensure_visible(30763.5 - 25, 31008 + 25)
+def test_schon_passend_nichts_tun():
+    ch = FakeChart(30868.0, 0.6)          # sichtbar ca. 30628 - 31108 (480 Punkte)
+    assert nav(ch).ensure_visible(30700, 31010)          # 310 Punkte = 65 %
     assert ch.drags == []
+
+
+def _fill(ch, lo, hi):
+    from replaybot.chartnav import fit_scale
+    n = nav(ch)
+    bottom, top = n._visible(fit_scale(ch.labels()))
+    return (hi - lo) / (top - bottom), lo >= bottom and hi <= top
+
+
+def test_zu_klein_zoomt_ran():
+    ch = FakeChart(30868.0, 1.5)          # 1200 Punkte sichtbar, Position nur 100
+    assert nav(ch).ensure_visible(30840, 30940)
+    fill, inside = _fill(ch, 30840, 30940)
+    assert inside and 0.45 <= fill <= 0.8
+    assert ch.ppp < 1.5
 
 
 def test_zu_gross_zoomt_raus():
