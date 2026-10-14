@@ -128,6 +128,21 @@ python bot.py --live --auto --zeichnen --datum 2026-09-25
 Wichtig: Die Werkzeugleiste und der Einstellungsdialog müssen beim Lauf **an derselben Stelle** sein wie beim Vormachen. Wenn du das Layout änderst, musst du neu aufnehmen.
 Das Dezimalzeichen beim Tippen ist `,`. Will TradingView bei dir einen Punkt, trag in `config.json` `"dezimal": "."` ein.
 
+### E) Auswertung über viele Tage
+```
+python bot.py --auswertung
+python bot.py --auswertung --von 2026-09-01 --bis 2026-09-30
+```
+Das liest `trades.csv` und zeigt:
+- Trefferquote, Summe R und **R pro Trade (Erwartungswert)**
+- Profit-Faktor (Gewinne ÷ Verluste), bester und schlechtester Trade
+- längste Gewinn- und Verlustserie, **größter Rückgang in R**
+- aufgeschlüsselt nach Long/Short, nach BOS-Zeit (9:45/9:50/9:55) und nach Ergebnis
+
+Der Bericht wird zusätzlich in `auswertung.txt` gespeichert. Unter 20 Trades kommt ein Hinweis, dass das noch nichts aussagt.
+
+**So liest du es:** Ist „Pro Trade“ über viele Tage positiv, verdient die Strategie im Schnitt. Bei 2R-Ziel und 1R-Stop reicht dafür schon eine Trefferquote über 33 %. Der „Max. Rückgang“ zeigt, wie viele R du zwischendurch aushalten musst.
+
 ## Wenn was nicht geht
 | Meldung | Lösung |
 |---|---|

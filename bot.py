@@ -8,6 +8,7 @@
   python bot.py --aufnehmen long                           # Einzeichnen einmal vormachen
   python bot.py --zeichnen-test long                       # Einzeichnen einzeln testen
   python bot.py --live --auto --zeichnen --datum ...       # durchklicken + Position einzeichnen
+  python bot.py --auswertung [--von 2026-09-01 --bis ...]  # Statistik aus trades.csv
 """
 from __future__ import annotations
 
@@ -75,6 +76,22 @@ def run_csv(args) -> int:
     return 0
 
 
+def run_stats(args) -> int:
+    from pathlib import Path
+
+    from replaybot.stats import compute, format_report, load_trades
+    path = Path(args.ausgabe) / "trades.csv"
+    rows = load_trades(path)
+    if not rows:
+        print(f"{path} fehlt oder ist leer - erst ein paar Replay-Tage laufen lassen.")
+        return 1
+    report = format_report(compute(rows, args.von, args.bis))
+    print(report)
+    (Path(args.ausgabe) / "auswertung.txt").write_text(report + "\n", encoding="utf-8")
+    print(f"\nGespeichert in {Path(args.ausgabe) / 'auswertung.txt'}")
+    return 0
+
+
 def main(argv=None) -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -98,6 +115,10 @@ def main(argv=None) -> int:
                    help="Einzeichnen der Long-/Short-Position einmal vormachen und speichern")
     p.add_argument("--zeichnen-test", choices=["long", "short"],
                    help="Einmal eine Beispiel-Position einzeichnen (Test ohne Replay-Lauf)")
+    p.add_argument("--auswertung", action="store_true",
+                   help="Statistik über alle Tage in trades.csv (schreibt auch auswertung.txt)")
+    p.add_argument("--von", help="mit --auswertung: ab Datum, z.B. 2026-09-01")
+    p.add_argument("--bis", help="mit --auswertung: bis Datum, z.B. 2026-09-30")
     p.add_argument("--start", default="09:00",
                    help="Uhrzeit der Kerze, auf der das Replay beim Start steht (Standard 09:00)")
     p.add_argument("--config", default="config.json", help="Pfad zur config.json")
@@ -107,6 +128,8 @@ def main(argv=None) -> int:
 
     if args.csv:
         return run_csv(args)
+    if args.auswertung:
+        return run_stats(args)
     if args.kalibrieren or args.live or args.aufnehmen or args.zeichnen_test:
         from replaybot import winutil
         winutil.set_dpi_aware()
