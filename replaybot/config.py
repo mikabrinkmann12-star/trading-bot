@@ -10,7 +10,8 @@ DEFAULTS = {
     "chart": None,            # [left, top, width, height] - Maus darin -> nicht lesen
     "naechste_kerze": None,   # [x, y]
     "fenster": None,          # [x, y] Position des Bot-Fensters
-    "max_open_luecke": 25.0,  # Punkte: Open weicht so weit vom letzten Close ab -> Warnung
+    "max_open_luecke": 25.0,  # Punkte: Open weicht so weit vom letzten Close ab -> Stopp
+    "klick_timeout": 0,       # Sekunden ohne neue Kerze nach Klick -> Stopp (0 = aus, wartet ewig)
 }
 
 

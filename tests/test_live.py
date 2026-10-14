@@ -179,3 +179,25 @@ def test_auto_klick_verweigert_stoppt(tmp_path):
                         post=lambda k, p: posts.append((k, p)), clicker=refuse)
     run_all(reader, 10)
     assert posts[-1][0] == ERROR and "verweigert" in posts[-1][1]
+
+
+def test_auto_ohne_timeout_wartet_einfach(tmp_path):
+    """Standard: kein Abbruch, auch wenn die Kerze nach dem Klick lange braucht."""
+    now = [0.0]
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    clicks = []
+    engine = StrategyEngine("2026-09-14")
+    posts = []
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read,
+                        post=lambda k, p: posts.append((k, p)), clicker=lambda: clicks.append(1),
+                        clock=lambda: now[0])
+    for _ in range(100):                      # 50 s lang passiert nichts
+        assert reader.step()
+        now[0] += 0.5
+    assert not reader.finished
+    assert len(clicks) == 1                   # und es wird NICHT nochmal geklickt
+    assert "seit" in posts[-1][1][0]
+    replay.click()                            # jetzt kommt die Kerze doch
+    reader.step()
+    reader.step()
+    assert len(engine.candles) == 2

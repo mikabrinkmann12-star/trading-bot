@@ -29,7 +29,7 @@ class LiveReader:
                  chart_rect=None, start: str = "09:00", retries: int = 3,
                  max_open_gap: float = 25.0, stable: int = 2,
                  save_img: Callable[[object], str] | None = None,
-                 clicker: Callable[[], None] | None = None, click_timeout: float = 5.0,
+                 clicker: Callable[[], None] | None = None, click_timeout: float | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self.engine = engine
         self.journal = journal
@@ -87,12 +87,14 @@ class LiveReader:
 
         if vals == self.last_vals:
             self.pending, self.pending_count = None, 0
-            if self.clicked_at is not None and self.clock() - self.clicked_at > self.click_timeout:
+            waited = self.clock() - self.clicked_at if self.clicked_at is not None else 0.0
+            if self.click_timeout and waited > self.click_timeout:
                 self._stop_error(f"Nach dem Klick auf 'Nächste Kerze' kam {self.click_timeout:.0f} s "
-                                 f"lang keine neue Kerze. Replay pausiert/am Ende oder Button "
+                                 f"lang keine neue Kerze. Replay am Ende oder Button "
                                  f"verdeckt? Neu kalibrieren, falls sich das Layout geändert hat.")
                 return False
-            self.post(STATUS, (f"Warte auf Kerze {self.next_time} ...", "info"))
+            extra = f" (seit {waited:.0f} s)" if waited >= 3 else ""
+            self.post(STATUS, (f"Warte auf Kerze {self.next_time} ...{extra}", "info"))
             return True
         if vals in self.seen:
             self.pending, self.pending_count = None, 0
@@ -207,7 +209,7 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         mouse_fn=winutil.mouse_pos, chart_rect=cfg.get("chart"), start=start,
         max_open_gap=float(cfg.get("max_open_luecke", 25.0)),
         save_img=lambda img: str(ocr.save_debug(img, journal.out / "logs", "fehler")),
-        clicker=clicker)
+        clicker=clicker, click_timeout=float(cfg.get("klick_timeout") or 0) or None)
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(engine.snapshot())

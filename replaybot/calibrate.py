@@ -20,7 +20,8 @@ STEPS = [
      "Schritt 2/3: Ziehe ein Rechteck um den ganzen Kerzen-Bereich des Charts.\n"
      "(Ist die Maus dort, liest der Bot nicht - die Legende zeigt sonst die Kerze unter der Maus.) Enter."),
     ("point", "naechste_kerze",
-     "Schritt 3/3: Klicke auf den Replay-Button 'Nächste Kerze' (Vorwärts-Pfeil). Dann Enter."),
+     "Schritt 3/3: Klicke auf den Replay-Button VORWÄRTS  ▷|  (eine Kerze weiter).\n"
+     "NICHT auf Play ▷ - Play spielt ab und überspringt Kerzen. Dann Enter."),
 ]
 
 

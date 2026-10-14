@@ -40,7 +40,7 @@ python bot.py --kalibrieren
 - Dann wird ein Bildschirmfoto gemacht und es kommen 3 Schritte:
   1. Ein **Rechteck um die OHLC-Legende** oben links ziehen (O… H… L… C…), dann **Enter**.
   2. Ein **Rechteck um den Kerzenbereich** des Charts ziehen, dann **Enter**.
-  3. Auf den Replay-Button **„Nächste Kerze“** klicken, dann **Enter**.
+  3. Auf den Replay-Button **Vorwärts ▷|** klicken (rechts neben Play), dann **Enter**. **Nicht auf Play ▷**, denn Play spielt durch und überspringt Kerzen.
 - `Esc` bricht ab. Zum Schluss steht im schwarzen Fenster „Test-OCR: O … H … L … C …“. **Vergleich das mit dem Chart.**
 
 ### B) Automatisch durchlaufen lassen (empfohlen)
@@ -80,7 +80,7 @@ Optional mit Abfrage: `--pruefen`.
 | `tesseract is not installed` | Tesseract installieren. Liegt es nicht in `C:\Program Files\Tesseract-OCR`, den Pfad in `config.json` bei `"tesseract"` eintragen. |
 | `Maus aus dem Chart nehmen` | Maus auf die Replay-Leiste oder neben den Chart bewegen |
 | `Open ... passt nicht zum letzten Close` | Kerze übersprungen oder Maus über dem Chart. Replay zurück auf 9:00 und neu starten |
-| `keine neue Kerze` (bei --auto) | Replay pausiert/am Ende oder Button verdeckt. Bei geändertem Layout neu kalibrieren |
+| Bot wartet ewig („Warte auf Kerze ... seit 30 s“) | Falscher Button kalibriert? Es muss **Vorwärts ▷|** sein, nicht Play ▷. Neu kalibrieren |
 | `Klick verweigert: kein TradingView-Fenster` | Am „Nächste Kerze“-Punkt liegt ein anderes Fenster. TradingView nach vorne holen oder neu kalibrieren |
 | Zahlen falsch | Screenshot vom Bot-Fenster und der Legende schicken. Fehlerbilder liegen in `logs\` |
 
