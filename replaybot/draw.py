@@ -102,12 +102,18 @@ def _default_snap(rect):
     return grab(rect)
 
 
+def _default_save(img, tag: str, log_dir) -> str:
+    from .ocr import save_debug
+    return str(save_debug(img, log_dir, tag))
+
+
 class Drawer:
     def __init__(self, cfg: dict, guard, *, sleep: Callable[[float], None] = time.sleep,
                  snap: Callable | None = _default_snap,
                  field_reader: Callable | None = _default_field_reader,
                  post: Callable[[str], None] = lambda text: None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 save_img: Callable | None = None):
         self.cfg = cfg
         self.guard = guard
         self.sleep = sleep
@@ -115,6 +121,10 @@ class Drawer:
         self.field_reader = field_reader
         self.post = post
         self.clock = clock
+        journal = getattr(guard, "journal", None)
+        self.log = journal.log_action if journal is not None else (lambda text: None)
+        log_dir = (journal.out / "logs") if journal is not None else "logs"
+        self.save_img = save_img or (lambda img, tag: _default_save(img, tag, log_dir))
 
     def has(self, direction: str) -> bool:
         return bool((self.cfg.get("ablaeufe") or {}).get(direction))
@@ -130,33 +140,56 @@ class Drawer:
             self.sleep(0.2)
 
     def _wait_for_dialog(self, rect, before, field) -> bool:
-        """Dialog gilt erst als offen, wenn sich das Bild verändert hat UND im Einstiegs-
-        preis-Feld eine Zahl steht (sonst wäre es z.B. nur eine Werkzeugleiste)."""
+        """Dialog gilt als offen, sobald sich der Bereich um das erste Feld deutlich verändert
+        hat. Das Feld wird danach nur ZUR INFO gelesen - die OCR ist beim echten TradingView
+        nicht immer verlässlich und darf das Tippen nicht blockieren."""
         wait = float(self.cfg.get("dialog_wartezeit", 3.0))
         if not self._wait_for_change(rect, before, wait):
             return False
-        deadline = self.clock() + wait
-        while True:
-            self.sleep(0.4)                 # Dialog fertig aufbauen lassen
-            if self.field_reader is None or self._field_numbers(*field):
-                return True
-            if self.clock() >= deadline:
-                return False
+        self.sleep(0.6)                     # Dialog fertig aufbauen lassen
+        if self.field_reader is not None:
+            nums, text, img = self._read_field(*field)
+            if nums:
+                self.log(f"Dialog offen, Einstiegspreis-Feld zeigt {nums[0]:.2f}")
+            else:
+                self._diag("vorher_entry", img, text)
+                self.post("Einstiegspreis-Feld nicht lesbar - tippe trotzdem.")
+        return True
+
+    def _read_field(self, x: int, y: int) -> tuple[list[float], str, object]:
+        """(gelesene Zahlen, OCR-Text, Bild) eines Eingabefelds."""
+        try:
+            img = self.snap(_rect_around(x, y, FIELD))
+            text = self.field_reader(img)
+            return numbers_in(text), text, img
+        except Exception as exc:
+            return [], f"Fehler: {exc!r}", None
 
     def _field_numbers(self, x: int, y: int) -> list[float]:
-        try:
-            return numbers_in(self.field_reader(self.snap(_rect_around(x, y, FIELD))))
-        except Exception:
-            return []
+        return self._read_field(x, y)[0]
+
+    def _diag(self, tag: str, img, text: str):
+        """Diagnose: Bild + OCR-Text sichern, damit man später sieht, was der Bot sah."""
+        where = "-"
+        if img is not None:
+            try:
+                where = self.save_img(img, f"zeichnen_{tag}")
+            except Exception as exc:
+                where = f"(nicht gespeichert: {exc})"
+        self.log(f"Diagnose {tag}: OCR las {text!r}, Bild {where}")
 
     def _field_ok(self, x: int, y: int, value: float) -> bool | None:
         """True = richtige Zahl im Feld, False = falsche Zahl, None = nicht lesbar."""
         if self.snap is None or self.field_reader is None:
             return None
-        nums = self._field_numbers(x, y)
+        nums, text, img = self._read_field(x, y)
         if not nums:
+            self._diag(f"unlesbar_{value:.2f}", img, text)
             return None
-        return any(abs(n - value) < 0.01 for n in nums)
+        ok = any(abs(n - value) < 0.01 for n in nums)
+        if not ok:
+            self._diag(f"falsch_{value:.2f}", img, text)
+        return ok
 
     def _leave_field(self):
         """Tab: Feld verlassen -> TradingView übernimmt den Wert, und der blinkende Cursor

@@ -197,12 +197,31 @@ def test_ok_nicht_getroffen_wird_erkannt():
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
 
 
-def test_dialog_ohne_zahlenfeld_gilt_nicht_als_offen():
-    """Bild ändert sich (z.B. nur eine Werkzeugleiste), aber kein Zahlenfeld -> kein Tippen."""
+def test_feld_vor_dem_tippen_unlesbar_wird_trotzdem_getippt():
+    """Regression: OCR liest das frisch geöffnete Feld nicht -> trotzdem tippen."""
+    saved = []
+    dr, g = make_drawer(field_text=lambda n: "" if n == 0 else
+                        ["30845,00", "31008,00", "30763,50"][n - 1])
+    dr.save_img = lambda img, tag: saved.append(tag) or tag
+    dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert [c[2] for c in g.calls if c[0] == "type"] == ["30845,00", "31008,00", "30763,50"]
+    assert saved == ["zeichnen_vorher_entry"]
+
+
+def test_felder_nie_lesbar_tippt_trotzdem_alles():
     dr, g = make_drawer(field_text=lambda n: "")
-    with pytest.raises(SafetyError, match="nicht aufgegangen"):
+    dr.save_img = lambda img, tag: tag
+    dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert [c[2] for c in g.calls if c[0] == "type"] == ["30845,00", "31008,00", "30763,50"]
+
+
+def test_falsche_zahl_gibt_diagnosebild():
+    saved = []
+    dr, g = make_drawer(field_text=lambda n: "12345")
+    dr.save_img = lambda img, tag: saved.append(tag) or tag
+    with pytest.raises(SafetyError):
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
-    assert not any(c[0] == "type" for c in g.calls)
+    assert "zeichnen_falsch_30845.00" in saved
 
 
 def test_fokus_klick_vorher_wird_nicht_zum_anlege_klick():

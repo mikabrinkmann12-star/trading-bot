@@ -163,6 +163,7 @@ Der Bericht wird zusätzlich in `auswertung.txt` gespeichert. Unter 20 Trades ko
 | `Einzeichnen ist noch nicht aufgenommen` | Zuerst `--aufnehmen long` und `--aufnehmen short` |
 | Box falsch / Dialog geht nicht auf | Layout geändert? Neu aufnehmen. Mit `--zeichnen-test` prüfen. In `config.json` bei `"zeichnen_pause"` mehr Zeit geben (z.B. `1.0`) |
 | `Position evtl. nicht ganz sichtbar` | Preisachse neu kalibrieren (Schritt 4), Rechteck nur um die Zahlen-Spalte |
+| Box ohne richtige Zahlen / tippt nicht | Rote Zeile aus dem Bot-Fenster, die letzten Zeilen aus `logs\aktionen.log` (Zeilen mit „Diagnose“) und die Bilder `logs\ocr_zeichnen_*.png` schicken. Darauf ist zu sehen, was der Bot im Feld gelesen hat |
 | Zahlen falsch | Screenshot vom Bot-Fenster und der Legende schicken. Fehlerbilder liegen in `logs\` |
 
 ## Dateien
