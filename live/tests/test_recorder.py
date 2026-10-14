@@ -53,3 +53,18 @@ def test_fehlende_markierung():
 def test_markieren_ohne_klick():
     with pytest.raises(RecordError):
         Recording().mark("entry")
+
+
+def test_klick_auf_linie_im_chart_wird_gemeldet():
+    from livebot.recorder import price_dependent_clicks
+    cfg = {"chart": [0, 100, 1000, 600], "legende": [10, 110, 300, 20],
+           "ablaeufe": {
+               "breakeven": [{"punkt": [500, 400], "doppel": True, "tippe": None},     # SL-Linie
+                             {"punkt": [700, 300], "doppel": False, "tippe": "entry"},
+                             {"punkt": [800, 600], "doppel": False, "tippe": None}],
+               "kaufen": [{"punkt": [120, 160], "doppel": False, "tippe": None},       # Knopf
+                          {"punkt": [700, 300], "doppel": False, "tippe": "menge"}],
+               "schliessen": [{"punkt": [900, 900], "doppel": False, "tippe": None}]}}
+    assert len(price_dependent_clicks(cfg, "breakeven")) == 1
+    assert price_dependent_clicks(cfg, "kaufen") == []
+    assert price_dependent_clicks(cfg, "schliessen") == []                  # Handelspanel

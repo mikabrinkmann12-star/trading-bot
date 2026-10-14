@@ -8,7 +8,8 @@ from livebot.csv_source import read_candles
 from livebot.journal import Journal
 from livebot.livefeed import LiveFeed, match_closed
 from livebot.livetrade import (ARMED, BREAKEVEN, CLOSED_LATE, CLOSED_NOON, DONE, IN_TRADE,
-                               NOT_FILLED, ORDER_ERROR, STOP, TARGET, TradeManager)
+                               NOT_FILLED, ORDER_ERROR, SKIPPED, STOP, TARGET,
+                               TradeManager)
 from livebot.orders import LiveActions
 from livebot.safety import SafetyError
 from livebot.strategy import StrategyEngine
@@ -321,3 +322,18 @@ def test_zwoelf_uhr_regel_auch_ohne_frische_lesung():
     assert acts.calls[-1] == ("breakeven", pytest.approx(28962.25))
     m.on_time(T(15, 55, 1), 29050.0)
     assert acts.calls[-1] == ("close",) and m.result == CLOSED_LATE
+
+
+def test_kurs_schon_hinter_dem_stop_keine_order():
+    m, acts = armed_manager()
+    for s in (0, 1):
+        tick(m, T(10, 35, s), 29017, 29017.75, 28860.0, 28870.0)   # Stop 28874.75 schon durch
+    assert acts.calls == [] and m.result == SKIPPED and m.done
+    assert "hinter dem Stop" in m.reason
+
+
+def test_kurs_zurueck_ueber_dem_stop_order_normal():
+    m, acts = armed_manager()
+    for s in (0, 1):
+        tick(m, T(10, 35, s), 29017, 29017.75, 28860.0, 28950.0)
+    assert [c[0] for c in acts.calls] == ["market", "draw"]

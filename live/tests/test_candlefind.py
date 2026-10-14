@@ -4,7 +4,7 @@ np = pytest.importorskip("numpy")
 
 from livebot.candlefind import (bar_spacing, candle_candidates,  # noqa: E402
                                   exclusion_zones, find_last_candle_x, legend_zone,
-                                  locate_current_candle)
+                                  locate_current_candle, same_open)
 
 BLUE = (255, 98, 41)      # BGR von #2962FF
 BLACK = (0, 0, 0)
@@ -157,4 +157,33 @@ def test_vorherige_kerze_doji_wird_trotzdem_bestaetigt():
     tv = FakeTV(img, xs)
     x, why = locate_current_candle(CFG, tv.vals(29), tv.vals(28), grab=tv.grab,
                                    read_ohlc=tv.read, move=tv.move, sleep=lambda s: None)
+    assert x == CHART[0] + 680, why
+
+
+class TickingTV(FakeTV):
+    """Die letzte Kerze entsteht noch: jede Lesung hat ein anderes Hoch/Close."""
+
+    def __init__(self, img, xs):
+        super().__init__(img, xs)
+        self.n = 0
+
+    def read(self, img):
+        vals, text = super().read(img)
+        if vals == self.vals(len(self.xs) - 1):
+            self.n += 1
+            vals = (vals[0], vals[1] + self.n, vals[2], vals[3] + self.n * 0.25)
+        return vals, text
+
+
+def test_entstehende_kerze_nur_ueber_open_gefunden():
+    """--zeichnen-test: die gelesene Kerze ist die ENTSTEHENDE - H/C ändern sich beim Hovern."""
+    img = chart_img(CANDLES)
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+    tv = TickingTV(img, xs)
+    current = tv.read("legende")[0]
+    x, _ = locate_current_candle(CFG, current, None, grab=tv.grab, read_ohlc=tv.read,
+                                 move=tv.move, sleep=lambda s: None)
+    assert x is None                                   # voller Vergleich scheitert
+    x, why = locate_current_candle(CFG, current, None, grab=tv.grab, read_ohlc=tv.read,
+                                   move=tv.move, sleep=lambda s: None, same=same_open)
     assert x == CHART[0] + 680, why

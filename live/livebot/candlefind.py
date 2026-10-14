@@ -11,6 +11,8 @@ nicht.)
 """
 from __future__ import annotations
 
+from typing import Callable
+
 Rect = tuple[int, int, int, int]   # left, top, width, height (Bildschirm)
 
 
@@ -114,11 +116,18 @@ def _same(a, b) -> bool:
     return a is not None and b is not None and all(abs(x - y) < 0.01 for x, y in zip(a, b))
 
 
+def same_open(a, b) -> bool:
+    """Nur der Open: für die ENTSTEHENDE Kerze, deren H/L/C sich beim Hovern schon ändern."""
+    return a is not None and b is not None and abs(a[0] - b[0]) < 0.01
+
+
 def locate_current_candle(cfg: dict, current: tuple, previous: tuple | None = None, *,
                           grab, read_ohlc, move, sleep, exclude: list[Rect] = (),
-                          max_candidates: int = 12, hover_pause: float = 0.4
+                          max_candidates: int = 12, hover_pause: float = 0.4,
+                          same: Callable[[tuple | None, tuple | None], bool] = _same
                           ) -> tuple[int | None, str]:
-    """x der aktuellen Kerze finden und doppelt gegenprüfen. Rückgabe (x, '') oder (None, Grund)."""
+    """x der aktuellen Kerze finden und doppelt gegenprüfen. Rückgabe (x, '') oder (None, Grund).
+    same = Vergleich zweier Legenden-Lesungen (Standard: alle vier Werte gleich)."""
     chart = cfg.get("chart")
     if not chart:
         return None, "Chart-Bereich nicht kalibriert"
@@ -136,7 +145,7 @@ def locate_current_candle(cfg: dict, current: tuple, previous: tuple | None = No
         return vals
 
     for i, x in enumerate(cands[:max_candidates]):
-        if not _same(legend_at(x), current):
+        if not same(legend_at(x), current):
             continue
         # eine Kerze weiter links: Abstand zum nächsten Kandidaten und der typische Abstand
         # (falls die vorherige Kerze ein Mini-Doji war und nicht als Kandidat auftaucht)
@@ -147,8 +156,8 @@ def locate_current_candle(cfg: dict, current: tuple, previous: tuple | None = No
             steps.append(spacing)
         for step in steps:
             left_vals = legend_at(x - step)
-            ok = (_same(left_vals, previous) if previous
-                  else left_vals is not None and not _same(left_vals, current))
+            ok = (same(left_vals, previous) if previous
+                  else left_vals is not None and not same(left_vals, current))
             if ok:
                 return x, ""
     return None, ("Legende bestätigt keine Kerze (weder aktuelle Kerze an der Stelle noch "

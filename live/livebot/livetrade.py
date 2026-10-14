@@ -22,6 +22,7 @@ TARGET, STOP, BREAKEVEN = "Ziel", "Stop", "Break-even"
 CLOSED_NOON, CLOSED_LATE = "Geschlossen 12:00", "Geschlossen 15:55"
 NOT_FILLED, ORDER_ERROR = "nicht gefüllt", "Order-Fehler"
 NO_PAPER = "Kein Paper-Konto"
+SKIPPED = "ausgelassen"            # Entry berührt, Kurs aber schon hinter Stop/Ziel
 TRADE_RESULTS = (TARGET, STOP, BREAKEVEN, CLOSED_NOON, CLOSED_LATE)
 
 FILL_END = (11 * 60 + 5) * 60      # 11:05:00 NY (Kerze 11:00 einschließlich)
@@ -117,6 +118,18 @@ class TradeManager:
             return
         # Höchstens EINE Order pro Tag - der Zähler wird VOR dem Klick erhöht
         if self.orders_sent:
+            return
+        long = self.direction == LONG
+        past_stop = c <= self.stop + EPS if long else c >= self.stop - EPS
+        past_target = c >= self.target - EPS if long else c <= self.target + EPS
+        if past_stop or past_target:
+            # Kurs ist (z.B. nach einem schnellen Sprung) schon hinter Stop oder Ziel:
+            # TradingView würde die Order mit diesem TP/SL ablehnen bzw. sie wäre sofort > 1R
+            # im Minus.
+            self._finish(SKIPPED, None, None,
+                         f"Entry berührt, aber der Kurs {fmt(c)} steht schon hinter dem "
+                         f"{'Stop' if past_stop else 'Ziel'} - KEINE Order.")
+            self.post(self.reason, "warn")
             return
         self.orders_sent += 1
         self.fill_time, self.fill_price = _hms(sec), c

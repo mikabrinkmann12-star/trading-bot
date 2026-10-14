@@ -149,7 +149,7 @@ def run(cfg_path: str = "config.json", steps=STEPS, countdown: int = 5) -> bool:
 
     cfg = config.load(cfg_path)
     print("Kalibrierung: Klick JETZT auf TradingView, damit es vorne ist "
-          "(Replay aktiv, Fenster so wie beim Training).")
+          "(Live-Chart wie im Betrieb, Handelspanel mit dem Paper-Konto sichtbar).")
     for i in range(countdown, 0, -1):
         print(f"  Bildschirmfoto in {i} ...", flush=True)
         time.sleep(1)

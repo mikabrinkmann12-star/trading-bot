@@ -153,7 +153,7 @@ class LiveReader:
                                    f"trotzdem zu Ende.", "error"))
         if self.engine.done or candle.minute >= EXIT_TIME:
             self.engine.end_of_data()
-            self.journal.write_trade(self.engine.trade_row())
+            self.saved_to = self.journal.write_trade(self.engine.trade_row())
             self.finished = True
             self.post(DONE, self.engine.snapshot())
             return False
@@ -364,7 +364,8 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
                         print(ev)
                 elif kind == DONE:
                     win.show(payload)
-                    msg = f"Fertig. Ergebnis gespeichert in {journal.trades}."
+                    saved = getattr(reader, "saved_to", None) or journal.trades
+                    msg = f"Fertig. Ergebnis gespeichert in {saved}."
                     if zeichnen and not drawn["ok"]:
                         msg += (f" Nichts eingezeichnet, weil {drawn['grund']}." if drawn["grund"]
                                 else f" Nichts eingezeichnet, weil es keine Füllung gab "

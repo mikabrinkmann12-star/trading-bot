@@ -65,3 +65,27 @@ def test_ganzer_live_tag(tmp_path):
     assert m.result == TARGET and m.r == pytest.approx(2.0)
     assert posts[-1][0] == DONE
     assert "2026-09-14" in (tmp_path / "trades.csv").read_text(encoding="utf-8")
+
+
+def test_probelauf_uhr_passt_zu_den_kerzen():
+    from datetime import datetime
+
+    from livebot.nyclock import ShiftClock, probe_shift, sec_of_day
+    for hh, mm, ss in ((11, 2, 30), (11, 5, 0), (9, 0, 1), (14, 59, 59)):
+        real = datetime(2026, 10, 15, hh, mm, ss)
+        shift = probe_shift(sec_of_day(real))
+        assert shift % 300 == 0                                   # Kerzengrenzen bleiben gleich
+        sim = sec_of_day(ShiftClock(shift, real=lambda r=real: r)())
+        assert 8 * 3600 + 55 * 60 <= sim < 9 * 3600
+    assert probe_shift(8 * 3600) == 0                              # vor 9:00: nichts verschieben
+
+
+def test_zu_spaeter_start_wird_erklaert():
+    from datetime import datetime
+
+    from livebot.nyclock import start_problem
+    assert start_problem(datetime(2026, 10, 15, 8, 55)) is None    # Donnerstag 8:55 NY
+    assert start_problem(datetime(2026, 10, 15, 9, 3)) is None
+    why = start_problem(datetime(2026, 10, 15, 11, 0))
+    assert "--probelauf" in why and "11:00" in why
+    assert "Wochenende" in start_problem(datetime(2026, 10, 17, 8, 0))

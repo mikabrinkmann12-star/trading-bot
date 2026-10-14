@@ -193,7 +193,7 @@ class StrategyEngine:
         o930, c940 = self.by_time.get("09:30"), self.by_time.get("09:40")
         if o930 is None or c940 is None:
             self._finish(ERROR, "9:30- oder 9:40-Kerze fehlt - Richtung nicht bestimmbar. "
-                                "Replay früher starten.", rep)
+                                "Bot früher starten (vor 9:00 NY).", rep)
             return
         rep.direction_decided = True
         if c940.c > o930.o + EPS:

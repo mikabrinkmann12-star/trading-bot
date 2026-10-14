@@ -13,7 +13,7 @@ from .legend import check_plausible
 from .livefeed import LiveFeed, read_closed_exact
 from .livetrade import ARMED, IN_TRADE, TradeManager
 from .models import Candle, m2t
-from .nyclock import now_ny, sec_of_day
+from .nyclock import now_ny, sec_of_day, start_problem
 from .strategy import StrategyEngine
 
 STATUS, CANDLE, DONE, ERROR = "status", "candle", "done", "error"
@@ -33,6 +33,7 @@ class LiveRunner:
         self.feed = feed or LiveFeed()
         self.fails = 0
         self.finished = False
+        self.saved_to = None            # Datei, in der das Tagesergebnis steht
 
     def step(self, now) -> bool:
         if self.finished:
@@ -60,7 +61,7 @@ class LiveRunner:
             self.manager._finish(self.manager.result or "Tagesende", None, None,
                                  "16:00 NY - Tag beendet.")
         if self.manager.done:
-            self.journal.write_trade(self.manager.row(self.date))
+            self.saved_to = self.journal.write_trade(self.manager.row(self.date))
             self.finished = True
             self.post(DONE, self.manager.snapshot(self.engine.snapshot()))
             return False
@@ -112,6 +113,14 @@ class LiveRunner:
             time.sleep(poll)
 
 
+def warn_price_dependent(cfg: dict, names: list[str]):
+    from .recorder import price_dependent_clicks
+    for name in names:
+        for warn in price_dependent_clicks(cfg, name):
+            print(f"ACHTUNG Ablauf '{name}': {warn} - Linien im Chart liegen jeden Tag woanders."
+                  f" Besser neu aufnehmen: python live.py --aufnehmen {name}")
+
+
 def install_f12(journal: Journal):
     try:
         import keyboard
@@ -127,7 +136,9 @@ def install_f12(journal: Journal):
 
 
 def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
-             clock: Callable = now_ny, sim_factor: float = 1.0) -> int:
+             clock: Callable = now_ny, sim_factor: float = 1.0,
+             probe_note: str | None = None) -> int:
+    """Der echte Live-Lauf. probe_note = Text für den Probelauf (verschobene Uhr)."""
     from . import ocr
     from .account import PaperLock
     from .draw import Drawer
@@ -148,10 +159,17 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
         print("Diese Abläufe fehlen noch: " + ", ".join(n for n in need if not abl.get(n)))
         print("Vormachen mit: python live.py --aufnehmen NAME   (oder erst --ohne-orders testen)")
         return 1
+    warn_price_dependent(cfg, need)
+    if probe_note is None and (why := start_problem(clock())):
+        print(why)
+        return 1
     ocr.setup_tesseract(cfg.get("tesseract"))
     date = clock().strftime("%Y-%m-%d")
     journal = Journal(out_dir)
-    journal.log_action(f"Start LIVE {date}, Orders {'AN' if orders else 'AUS (--ohne-orders)'}")
+    journal.log_action(f"Start LIVE {date}, Orders {'AN' if orders else 'AUS (--ohne-orders)'}"
+                       + (f", {probe_note}" if probe_note else ""))
+    if probe_note:
+        print(probe_note)
     print("WICHTIG: In TradingView muss 'Ein-Klick-Handel' AUS sein und das PAPER-Konto aktiv.")
     print("Orders: " + ("AN (nur Paper-Konto)" if orders else "AUS - nur beobachten/einzeichnen"))
 
@@ -202,8 +220,8 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(manager.snapshot(engine.snapshot()))
-    win.set_status("LIVE: Maus NICHT anfassen. F12 = sofort stoppen. Warte auf Kerzen ab 9:00 NY.",
-                   "warn")
+    win.set_status(("PROBELAUF" if probe_note else "LIVE") + ": Maus NICHT anfassen. F12 = sofort "
+                   "stoppen. Warte auf Kerzen ab 9:00 NY.", "warn")
 
     def pump():
         ui["fenster"] = win.rect()
@@ -223,8 +241,8 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
                         print(ev)
                 elif kind == DONE:
                     win.show(payload)
-                    win.set_status(f"Fertig: {manager.reason} Gespeichert in {journal.trades}.",
-                                   "ok")
+                    win.set_status(f"Fertig: {manager.reason} Gespeichert in "
+                                   f"{runner.saved_to or journal.trades}.", "ok")
                     print(f"Fertig: {manager.result} - {manager.reason}")
                 elif kind == ERROR:
                     win.set_status(payload, "error")
@@ -331,6 +349,7 @@ def run_action_test(action: str, out_dir: str, cfg_path: str = "config.json",
     if missing:
         print("Es fehlt noch: " + ", ".join(missing) + "\nErst kalibrieren/aufnehmen (siehe README).")
         return 1
+    warn_price_dependent(cfg, list(dict.fromkeys(steps)))
     ocr.setup_tesseract(cfg.get("tesseract"))
     journal = Journal(out_dir)
     stop = threading.Event()

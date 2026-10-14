@@ -42,16 +42,18 @@ ANLEITUNG = {
   3. Take Profit einschalten (Haken) und Klick ins TP-PREISFELD -> F8
   4. Stop Loss einschalten (Haken) und Klick ins SL-PREISFELD -> F7
   5. Klick auf den Bestätigen-/Kaufen-Knopf
+  6. Bleibt das Order-Fenster offen: Klick auf das X oben (der Bot wartet vorher 2,5 s)
   WICHTIG: Klicke in Preisfelder immer auf die ZAHL links im Feld, NIE auf die Symbole rechts
   daneben (z.B. das Pfeil-Symbol 'Werte umschalten' oder 'Ticks').
-  Vor dem Vormachen müssen Take Profit und Stop Loss AUSGESCHALTET sein; der Bot macht später
-  genau dieselben Klicks. Schalter, die schon an sind, würde er sonst wieder ausschalten.
+  Am besten sind Take Profit und Stop Loss vor dem Vormachen AUS. Sind sie später schon AN,
+  merkt der Bot das (Feld bleibt gesperrt/blass) und schaltet selbst richtig.
   (In der Paper-Übung darfst du dabei wirklich kaufen - danach die Position selbst schließen.)""",
-    "breakeven": """  1. Position bzw. ihren Stop Loss bearbeiten (z.B. Doppelklick auf die SL-Linie oder
-     'Position bearbeiten' im Handelspanel)
+    "breakeven": """  1. Unten im HANDELSPANEL bei der offenen Position auf 'Bearbeiten' (Stift) klicken
+     - NICHT im Chart auf die SL-Linie: die liegt jeden Tag woanders.
   2. Klick ins SL-PREISFELD -> F6 (dort tippt der Bot später den Entry ein)
-  3. Klick auf OK/Bestätigen""",
-    "schliessen": """  1. Klick auf 'Position schließen' (Handelspanel oder X an der Positionslinie)
+  3. Klick auf Ändern/Bestätigen (und ggf. das X, falls das Fenster offen bleibt)""",
+    "schliessen": """  1. Unten im HANDELSPANEL bei der offenen Position auf 'Schließen' (X) klicken
+     - NICHT das X an der Positionslinie im Chart: die liegt jeden Tag woanders.
   2. Falls eine Rückfrage kommt: Klick auf Bestätigen""",
 }
 ANLEITUNG["short"] = ANLEITUNG["long"].replace("Long", "Short")
@@ -59,8 +61,30 @@ ANLEITUNG["verkaufen"] = ANLEITUNG["kaufen"].replace("kaufen", "verkaufen").repl
     "Kaufen", "Verkaufen")
 
 
+ORDER_FLOWS = ("kaufen", "verkaufen", "breakeven", "schliessen")
+
+
 class RecordError(ValueError):
     pass
+
+
+def price_dependent_clicks(cfg: dict, name: str) -> list[str]:
+    """Order-Abläufe: Klicks VOR dem ersten Tipp-Feld mitten im Chart (z.B. auf die SL-Linie
+    oder das X an der Positionslinie) hängen vom Kurs ab und treffen morgen nichts mehr.
+    Ausgenommen ist der Bereich oben links (Legende, Kaufen/Verkaufen-Knöpfe)."""
+    from .candlefind import legend_zone
+    steps = (cfg.get("ablaeufe") or {}).get(name) or []
+    chart = cfg.get("chart")
+    if name not in ORDER_FLOWS or not chart:
+        return []
+    zone = legend_zone(cfg.get("legende"), chart)
+    first_type = next((i for i, s in enumerate(steps) if s.get("tippe")), len(steps))
+    out = []
+    for i, s in enumerate(steps[:max(first_type, 1)]):
+        x, y = s["punkt"]
+        if config.in_rect(x, y, chart) and not config.in_rect(x, y, zone):
+            out.append(f"Schritt {i + 1} ({x}, {y}) liegt mitten im Chart")
+    return out
 
 
 @dataclass
@@ -180,7 +204,10 @@ Aufnahme '{direction}'. Mach es jetzt EINMAL in TradingView vor:
     cfg = config.load(cfg_path)
     cfg.setdefault("ablaeufe", {})[direction] = steps
     config.save(cfg, cfg_path)
+    for warn in price_dependent_clicks(cfg, direction):
+        print(f"ACHTUNG: {warn} - Linien im Chart liegen jeden Tag woanders. Besser über das "
+              f"Handelspanel unten neu aufnehmen.")
     test = (f"python live.py --zeichnen-test {direction}" if direction in ("long", "short")
-            else "python live.py --ohne-orders (erst beobachten), dann im Paper-Konto echt")
+            else f"python live.py --aktion-test {direction}")
     print(f"Gespeichert in {cfg_path}. Testen mit:  {test}")
     return True

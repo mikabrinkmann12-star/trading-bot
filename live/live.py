@@ -6,7 +6,8 @@
   python live.py --zeichnen-test long          # Einzeichnen einzeln testen
   python live.py --aktion-test alle            # kaufen, break-even, schliessen, verkaufen, ... einmal
   python live.py --ohne-orders                 # beobachten + einzeichnen, OHNE zu kaufen
-  python live.py                               # richtig laufen lassen (Paper-Konto)
+  python live.py                               # richtig laufen lassen (Paper-Konto, vor 9:00 NY starten)
+  python live.py --probelauf                   # kompletter Ablauf JETZT (Uhr verschoben, Paper-Konto)
   python live.py --auswertung                  # Statistik aus trades.csv
 """
 from __future__ import annotations
@@ -47,6 +48,9 @@ def main(argv=None) -> int:
                    help="Order-Abläufe im Paper-Konto einmal testen (echte Klicks!)")
     p.add_argument("--ohne-orders", action="store_true",
                    help="nur beobachten, rechnen, einzeichnen - nichts kaufen/verkaufen")
+    p.add_argument("--probelauf", action="store_true",
+                   help="kompletter Ablauf sofort: Uhr wird so verschoben, dass jetzt 'kurz vor "
+                        "9:00' ist (echte Kerzen, Paper-Konto, Ergebnisse in probelauf/)")
     p.add_argument("--auswertung", action="store_true", help="Statistik aus trades.csv")
     p.add_argument("--von", help="mit --auswertung: ab Datum")
     p.add_argument("--bis", help="mit --auswertung: bis Datum")
@@ -73,6 +77,18 @@ def main(argv=None) -> int:
         from livebot.runner import run_action_test
         return run_action_test(args.aktion_test, args.ausgabe, args.config)
     from livebot.runner import run_live
+    if args.probelauf:
+        from livebot.nyclock import ShiftClock, now_ny, probe_shift, sec_of_day
+        real = now_ny()
+        shift = probe_shift(sec_of_day(real))
+        clock = ShiftClock(shift)
+        out = args.ausgabe if args.ausgabe != "." else "probelauf"
+        note = (f"PROBELAUF: Es ist {real:%H:%M} NY, der Bot tut so, als wäre es "
+                f"{clock():%H:%M} NY (Uhr {shift // 60} min zurückgestellt). Echte Kerzen, "
+                f"Orders {'AUS' if args.ohne_orders else 'AN (Paper-Konto)'}. "
+                f"Ergebnisse im Ordner '{out}'.")
+        return run_live(out, args.config, orders=not args.ohne_orders, clock=clock,
+                        probe_note=note)
     if args.sim_start:
         from livebot.nyclock import SimClock
         return run_live(args.ausgabe, args.config, orders=not args.ohne_orders,

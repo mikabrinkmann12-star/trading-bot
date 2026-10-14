@@ -1,4 +1,4 @@
-"""Auswertung mehrerer Replay-Tage aus trades.csv."""
+"""Auswertung mehrerer Live-(Paper-)Tage aus trades.csv."""
 from __future__ import annotations
 
 import csv
@@ -139,5 +139,5 @@ def format_report(s: dict) -> str:
                              f"   Summe {_r(g['summe_r'])}")
     if s["trades"] < MIN_SAMPLE:
         lines += ["", f"Achtung: erst {s['trades']} Trades. Unter {MIN_SAMPLE} sagt das noch "
-                      f"nichts Verlässliches - weiter Replay-Tage sammeln."]
+                      f"nichts Verlässliches - weiter Tage sammeln."]
     return "\n".join(lines)

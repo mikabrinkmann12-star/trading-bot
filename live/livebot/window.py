@@ -15,7 +15,7 @@ class StatusWindow:
         self.cfg = cfg
         self.on_stop = on_stop
         self.root = tk.Tk()
-        self.root.title("Replay-Bot")
+        self.root.title("Live-Bot (Paper)")
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.close)

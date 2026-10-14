@@ -77,8 +77,8 @@ def run_csv(args) -> int:
 
     engine.end_of_data()
     print_status(engine)
-    journal.write_trade(engine.trade_row())
-    print(f"\nGespeichert: {journal.trades} und {journal.candle_log}")
+    where = journal.write_trade(engine.trade_row())
+    print(f"\nGespeichert: {where} und {journal.candle_log}")
     if quiz is not None:
         print("\n" + quiz.summary())
     return 0

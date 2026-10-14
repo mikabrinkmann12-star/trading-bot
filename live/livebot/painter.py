@@ -9,8 +9,8 @@ from typing import Callable
 def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
                  exclude_fn: Callable[[], list] = lambda: []):
     from . import ocr
-    from .candlefind import (bar_spacing, candle_candidates, exclusion_zones,
-                             locate_current_candle)
+    from .candlefind import (_same, bar_spacing, candle_candidates, exclusion_zones,
+                             locate_current_candle, same_open)
     from .chartnav import ChartNav
     from .draw import Drawer
 
@@ -29,7 +29,8 @@ def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
             x, why = locate_current_candle(
                 cfg, last_closed, prev_closed, grab=ocr.grab, read_ohlc=ocr.read_ohlc,
                 move=lambda mx, my: guard.move_to(mx, my, "Kerze prüfen (Hover)"),
-                sleep=time.sleep, exclude=exclude_fn())
+                sleep=time.sleep, exclude=exclude_fn(),
+                same=same_open if on_given_candle else _same)
             if x is None:
                 post(f"Kerze nicht gefunden ({why}) - Box an der aufgenommenen Stelle.", "warn")
             else:
