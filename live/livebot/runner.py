@@ -295,7 +295,7 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
 
 
 def run_draw_test(direction: str, out_dir: str, cfg_path: str = "config.json") -> int:
-    """Eine Beispiel-Box um den aktuellen Kurs einzeichnen (an der aufgenommenen Stelle)."""
+    """Eine Beispiel-Box um den aktuellen Kurs an der aktuellen Kerze einzeichnen (Test)."""
     from . import ocr
     from .painter import make_painter
     from .safety import Guard
@@ -307,17 +307,21 @@ def run_draw_test(direction: str, out_dir: str, cfg_path: str = "config.json") -
     ocr.setup_tesseract(cfg.get("tesseract"))
     journal = Journal(out_dir)
     install_f12(journal)
+    guard = Guard(cfg, journal)
+    print("In 3 Sekunden geht es los - Maus nicht anfassen.")
+    time.sleep(3)
+    if cfg.get("parkplatz"):                     # Maus im Chart -> Legende zeigt falsche Kerze
+        guard.move_to(*cfg["parkplatz"], "Maus parken")
+        time.sleep(0.5)
     vals, text = ocr.read_ohlc(ocr.grab(cfg["legende"]))
     if vals is None:
-        print(f"Legende nicht lesbar ({text!r}) - Maus aus dem Chart nehmen.")
+        print(f"Legende nicht lesbar ({text!r}).")
         return 1
     entry = vals[3]
     stop, target = (entry - 20, entry + 40) if direction == "long" else (entry + 20, entry - 40)
-    print(f"Test: {direction} Entry {entry:.2f}, Stop {stop:.2f}, Ziel {target:.2f} - "
-          f"in 3 Sekunden, Maus nicht anfassen.")
-    time.sleep(3)
+    print(f"Test: {direction} Entry {entry:.2f}, Stop {stop:.2f}, Ziel {target:.2f}.")
     try:
-        make_painter(cfg, Guard(cfg, journal), lambda t, l: print(f"  {t}"))(
+        make_painter(cfg, guard, lambda t, l: print(f"  {t}"))(
             direction, entry, stop, target, last_closed=vals, on_given_candle=True)
     except Exception as exc:
         print(f"FEHLER: {exc}")
