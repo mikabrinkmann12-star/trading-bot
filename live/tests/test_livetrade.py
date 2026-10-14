@@ -181,7 +181,10 @@ def test_match_closed():
 
 @pytest.mark.parametrize("text,ok", [("Paper Trading", True), ("PaperTrading | Paoer Trading", True),
                                      ("Paoer Tradlng", True), ("Interactive Brokers", False),
-                                     ("", False), ("TradeStation 123", False)])
+                                     ("", False), ("TradeStation 123", False),
+                                     ("Ww Papierhandel ~ | Ww Papierhandel ~", True),
+                                     ("Papierhande1", True), ("Pa pierhandel", True),
+                                     ("Tradovate Live", False), ("Paperless Broker GmbH", False)])
 def test_is_paper(text, ok):
     assert is_paper(text) is ok
 

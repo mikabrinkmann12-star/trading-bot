@@ -1,5 +1,5 @@
 """Paper-Sperre: Vor jeder Order wird der Kontoname im Handelspanel gelesen.
-Steht dort nicht 'Paper', wird NICHTS geklickt."""
+Steht dort nicht 'Paper' (deutsch: 'Papierhandel'), wird NICHTS geklickt."""
 from __future__ import annotations
 
 import re
@@ -20,9 +20,10 @@ def read_account(rect) -> str:
 
 
 def is_paper(text: str) -> bool:
-    """'Paper Trading' (auch mit kleinen OCR-Fehlern wie 'Paoer', 'PaperTrading')."""
+    """Paper-Konto: englisch 'Paper Trading', deutsch 'Papierhandel' (auch mit kleinen
+    OCR-Fehlern wie 'Paoer', 'Papierhande1'). Alles andere (z.B. ein Brokername) = nein."""
     t = re.sub(r"[^a-z]", "", text.lower())
-    return bool(re.search(r"pa[pvo]er", t))
+    return bool(re.search(r"pa[pvo](ie|i|e)r(t|h|$)", t))
 
 
 class PaperLock:
