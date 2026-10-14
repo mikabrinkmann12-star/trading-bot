@@ -1,0 +1,310 @@
+"""Long-/Short-Position mit dem aufgenommenen Ablauf einzeichnen - mit Kontrolle nach jedem
+Schritt:
+  - Box wird an der aktuellen Kerze angelegt, Doppelklick knapp rechts daneben auf die
+    Entry-Linie (öffnet die Einstellungen).
+  - Bevor getippt wird: Ist der Einstellungsdialog wirklich aufgegangen? Wenn nicht -> Esc und
+    sauber abbrechen, statt in den Chart zu tippen.
+  - Nach jedem Tippen: Feld per OCR lesen. Steht eine andere Zahl drin -> nochmal tippen,
+    beim zweiten Fehlschlag abbrechen.
+"""
+from __future__ import annotations
+
+import math
+import re
+import time
+from typing import Callable
+
+from .config import in_rect
+from .safety import SafetyError
+
+PATCH = (150, 60)       # halbe Breite/Höhe des Bereichs um das erste Feld (Dialog-Check)
+FIELD = (110, 16)       # halbe Breite/Höhe eines Eingabefelds (OCR-Kontrolle)
+
+
+def format_price(value: float, decimal: str = ",", tick: float = 0.25) -> str:
+    """30845.125 -> '30845,25' (auf Tick gerundet, Dezimalzeichen wie im TradingView-UI)."""
+    rounded = math.floor(value / tick + 0.5) * tick
+    return f"{rounded:.2f}".replace(".", decimal)
+
+
+def numbers_in(text: str) -> list[float]:
+    """Alle Zahlen in einem OCR-Text, tolerant: '30.915,50' / '30915.5' / '30 915,50'."""
+    out = []
+    for tok in re.findall(r"\d[\d.,' ]*\d|\d", text):
+        tok = tok.replace(" ", "").replace("'", "")
+        m = re.fullmatch(r"([\d.,]*?)[.,](\d{1,2})", tok)
+        try:
+            if m:
+                out.append(float(re.sub(r"[.,]", "", m.group(1)) + "." + m.group(2)))
+            else:
+                out.append(float(re.sub(r"[.,]", "", tok)))
+        except ValueError:
+            continue
+    return out
+
+
+def changed(a, b, threshold: float = 0.15) -> bool:
+    """Hat sich ein Bildausschnitt deutlich verändert (Dialog auf/zu)?"""
+    import numpy as np
+    if a is None or b is None or a.shape != b.shape:
+        return True
+    diff = np.abs(a.astype(np.int16) - b.astype(np.int16)).max(axis=2) > 30
+    return float(diff.mean()) > threshold
+
+
+def anchor_pair(steps: list[dict], chart) -> tuple[int | None, int | None]:
+    """(Index Klick, der die Box anlegt; Index Doppelklick, der sie öffnet).
+
+    Bevorzugt: der erste Doppelklick im Chart vor dem ersten Tipp-Feld, und als Anlege-Klick
+    der LETZTE einfache Chart-Klick davor (ein Fokus-Klick ganz am Anfang zählt so nicht)."""
+    if not chart:
+        return None, None
+    first_type = next((i for i, s in enumerate(steps) if s.get("tippe")), len(steps))
+    in_chart = [i for i in range(first_type) if in_rect(*steps[i]["punkt"], chart)]
+    dbl = next((i for i in in_chart if steps[i].get("doppel")), None)
+    if dbl is not None:
+        before = [i for i in in_chart if i < dbl and not steps[i].get("doppel")]
+        return (before[-1] if before else None), dbl
+    singles = [i for i in in_chart if not steps[i].get("doppel")]
+    return (singles[0] if singles else None), None
+
+
+def _rect_around(x: int, y: int, half) -> list[int]:
+    hw, hh = half
+    return [x - hw, y - hh, 2 * hw, 2 * hh]
+
+
+def strip_lines(gray):
+    """Rahmenlinien eines Eingabefelds entfernen (Tesseract scheitert sonst daran)."""
+    out = gray.copy()
+    dark = out < 128
+    out[dark.mean(axis=1) > 0.4, :] = 255                 # waagerechte Rahmenlinien
+    out[:, dark.mean(axis=0) > 0.8] = 255                 # senkrechte Rahmenlinien
+    return out
+
+
+def _default_field_reader(img) -> str:
+    """Mehrere Vorverarbeitungen probieren (Rahmen und grauer Hintergrund stören)."""
+    import pytesseract
+
+    from .ocr import preprocess
+    for scale, thr, psm in ((3, False, 7), (3, True, 7), (4, False, 6), (2, False, 7)):
+        text = pytesseract.image_to_string(
+            strip_lines(preprocess(img, scale, thr)),
+            config=f"--psm {psm} -c tessedit_char_whitelist=0123456789.,")
+        if numbers_in(text):
+            return text
+    return ""
+
+
+def _default_snap(rect):
+    from .ocr import grab
+    return grab(rect)
+
+
+def _default_save(img, tag: str, log_dir) -> str:
+    from .ocr import save_debug
+    return str(save_debug(img, log_dir, tag))
+
+
+class Drawer:
+    def __init__(self, cfg: dict, guard, *, sleep: Callable[[float], None] = time.sleep,
+                 snap: Callable | None = _default_snap,
+                 field_reader: Callable | None = _default_field_reader,
+                 post: Callable[[str], None] = lambda text: None,
+                 clock: Callable[[], float] = time.monotonic,
+                 save_img: Callable | None = None):
+        self.cfg = cfg
+        self.guard = guard
+        self.sleep = sleep
+        self.snap = snap                    # None = keine Bildkontrolle (nur für Tests)
+        self.field_reader = field_reader
+        self.post = post
+        self.clock = clock
+        journal = getattr(guard, "journal", None)
+        self.log = journal.log_action if journal is not None else (lambda text: None)
+        log_dir = (journal.out / "logs") if journal is not None else "logs"
+        self.save_img = save_img or (lambda img, tag: _default_save(img, tag, log_dir))
+
+    def has(self, direction: str) -> bool:
+        return bool((self.cfg.get("ablaeufe") or {}).get(direction))
+
+    # ------------------------------------------------------------ Kontrollen
+    def _wait_for_change(self, rect, before, seconds: float) -> bool:
+        deadline = self.clock() + seconds
+        while True:
+            if changed(before, self.snap(rect)):
+                return True
+            if self.clock() >= deadline:
+                return False
+            self.sleep(0.2)
+
+    def _wait_for_dialog(self, rect, before, field) -> bool:
+        """Dialog gilt als offen, sobald sich der Bereich um das erste Feld deutlich verändert
+        hat. Das Feld wird danach nur ZUR INFO gelesen - die OCR ist beim echten TradingView
+        nicht immer verlässlich und darf das Tippen nicht blockieren."""
+        wait = float(self.cfg.get("dialog_wartezeit", 3.0))
+        if not self._wait_for_change(rect, before, wait):
+            return False
+        self.sleep(0.6)                     # Dialog fertig aufbauen lassen
+        if self.field_reader is not None:
+            nums, text, img = self._read_field(*field)
+            if nums:
+                self.log(f"Dialog offen, Einstiegspreis-Feld zeigt {nums[0]:.2f}")
+            else:
+                self._diag("vorher_entry", img, text)
+                self.post("Einstiegspreis-Feld nicht lesbar - tippe trotzdem.")
+        return True
+
+    def _read_field(self, x: int, y: int) -> tuple[list[float], str, object]:
+        """(gelesene Zahlen, OCR-Text, Bild) eines Eingabefelds."""
+        try:
+            img = self.snap(_rect_around(x, y, FIELD))
+            text = self.field_reader(img)
+            return numbers_in(text), text, img
+        except Exception as exc:
+            return [], f"Fehler: {exc!r}", None
+
+    def _field_numbers(self, x: int, y: int) -> list[float]:
+        return self._read_field(x, y)[0]
+
+    def _diag(self, tag: str, img, text: str):
+        """Diagnose: Bild + OCR-Text sichern, damit man später sieht, was der Bot sah."""
+        where = "-"
+        if img is not None:
+            try:
+                where = self.save_img(img, f"zeichnen_{tag}")
+            except Exception as exc:
+                where = f"(nicht gespeichert: {exc})"
+        self.log(f"Diagnose {tag}: OCR las {text!r}, Bild {where}")
+
+    def _field_ok(self, x: int, y: int, value: float) -> bool | None:
+        """True = richtige Zahl im Feld, False = falsche Zahl, None = nicht lesbar."""
+        if self.snap is None or self.field_reader is None:
+            return None
+        nums, text, img = self._read_field(x, y)
+        if not nums:
+            self._diag(f"unlesbar_{value:.2f}", img, text)
+            return None
+        ok = any(abs(n - value) < 0.01 for n in nums)
+        if not ok:
+            self._diag(f"falsch_{value:.2f}", img, text)
+        return ok
+
+    def _leave_field(self):
+        """Tab: Feld verlassen -> TradingView übernimmt den Wert, und der blinkende Cursor
+        stört das Nachlesen nicht (sonst wird aus '0|' gern eine '9')."""
+        self.sleep(0.2)
+        self.guard.press("tab", "Feld verlassen")
+        self.sleep(0.4)
+
+    def _close_dialogs(self, what: str):
+        """Zweimal Esc: das erste verlässt ggf. ein Eingabefeld, das zweite schließt den
+        Dialog. Geht nur, wenn TradingView vorne ist - sonst still überspringen."""
+        for _ in range(2):
+            try:
+                self.guard.press("esc", what)
+            except SafetyError:
+                return
+            self.sleep(0.4)
+
+    def _abort(self, why: str):
+        try:
+            self._close_dialogs("Dialog schließen (Abbruch)")
+        finally:
+            raise SafetyError(why)
+
+    # ------------------------------------------------------------ Ablauf
+    def draw(self, direction: str, entry: float, stop: float, target: float,
+             anchor: tuple[int, int | None] | None = None):
+        """Long-/Short-Box einzeichnen. anchor = (x, y): Box an dieser Stelle anlegen statt am
+        aufgenommenen Punkt. y = None -> aufgenommene Höhe behalten."""
+        self.play(direction, {"entry": entry, "stop": stop, "ziel": target}, anchor=anchor)
+
+    def play(self, name: str, values: dict, anchor=None, final_esc: bool = True,
+             pause: float | None = None):
+        """Einen aufgenommenen Ablauf abspielen (Einzeichnen, Kaufen, Break-even, ...)."""
+        steps = (self.cfg.get("ablaeufe") or {}).get(name)
+        if not steps:
+            raise SafetyError(f"Kein Ablauf '{name}' aufgenommen "
+                              f"(python live.py --aufnehmen {name})")
+        direction = name
+        dec = self.cfg.get("dezimal", ",")
+        if pause is None:
+            pause = float(self.cfg.get("zeichnen_pause", 1.0))
+        dx = int(self.cfg.get("doppelklick_versatz", 12))
+        side = {"long": "Long", "short": "Short"}.get(direction, direction.capitalize())
+
+        create, dbl = anchor_pair(steps, self.cfg.get("chart")) if anchor else (None, None)
+        if create is not None:
+            ax, ay = anchor
+            if ay is None:
+                ay = steps[create]["punkt"][1]
+        first_type = next((i for i, s in enumerate(steps) if s.get("tippe")), None)
+        dialog_rect = before = None
+        if first_type and self.snap is not None:
+            dialog_rect = _rect_around(*steps[first_type]["punkt"], PATCH)
+
+        # Aufräumen: ein offener Dialog von vorher würde die Kontrolle täuschen
+        self._close_dialogs("offene Dialoge schließen (Start)")
+        dialog_open = False
+        last = len(steps) - 1
+        for i, st in enumerate(steps):
+            x, y = st["punkt"]
+            double = bool(st.get("doppel"))
+            opens_dialog = dialog_rect is not None and i == first_type - 1
+            closes_dialog = dialog_open and i == last and not st.get("tippe")
+            if opens_dialog or closes_dialog:
+                before = self.snap(dialog_rect)          # Bild VOR dem Öffnen/Schließen
+
+            if i == create:
+                self.guard.click_in("chart", ax, ay, f"{side}: Box an aktueller Kerze anlegen")
+            elif i == dbl and create is not None:
+                self.guard.click_in("chart", ax + dx, ay, f"{side}: Box öffnen (Doppelklick)",
+                                    double=True)
+            else:
+                self.guard.click(x, y, f"{side} Schritt {i + 1}", double=double)
+
+            if opens_dialog:
+                self.post("Prüfe, ob der Einstellungsdialog offen ist ...")
+                if not self._wait_for_dialog(dialog_rect, before, steps[first_type]["punkt"]):
+                    self._abort("Einstellungsdialog ist nicht aufgegangen - Box wurde nicht "
+                                "getroffen. Nichts getippt.")
+                dialog_open = True
+
+            if closes_dialog:
+                self.post("Prüfe, ob der Dialog zu ist ...")
+                if not self._wait_for_change(dialog_rect, before, 3.0):
+                    self._abort("OK wurde nicht getroffen - Dialog ist noch offen. "
+                                "Box evtl. ohne die richtigen Werte.")
+
+            if st.get("tippe"):
+                if st["tippe"] not in values:
+                    self._abort(f"Für das Feld '{st['tippe']}' gibt es in '{name}' keinen Wert.")
+                if st["tippe"] == "menge":
+                    text = str(int(values["menge"]))
+                    value = float(text)
+                else:
+                    text = format_price(values[st["tippe"]], dec)
+                    value = float(text.replace(",", "."))   # gerundeter Wert = was im Feld steht
+                self.sleep(0.3)
+                self.guard.type_text(text, st["tippe"])
+                self._leave_field()
+                ok = self._field_ok(x, y, value)
+                if ok is False:
+                    self.post(f"{st['tippe']}: falsche Zahl im Feld - tippe nochmal ...")
+                    self.guard.click(x, y, f"{side} Schritt {i + 1} (nochmal)")
+                    self.sleep(0.3)
+                    self.guard.type_text(text, st["tippe"] + " (nochmal)")
+                    self._leave_field()
+                    if self._field_ok(x, y, value) is False:
+                        self._abort(f"Im Feld '{st['tippe']}' steht nach 2 Versuchen nicht "
+                                    f"{text} - abgebrochen.")
+                elif ok is None:
+                    self.post(f"{st['tippe']}: Feld nicht lesbar - kann es nicht prüfen.")
+            self.sleep(pause)
+
+        if final_esc:
+            self.guard.press("esc", "Auswahl aufheben")
+        if self.cfg.get("parkplatz"):
+            self.guard.move_to(*self.cfg["parkplatz"], "Maus aus dem Chart")
