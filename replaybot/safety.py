@@ -1,13 +1,16 @@
-"""Sicherheitsregeln für jeden Klick.
+"""Sicherheitsregeln für jede Maus-/Tastaturaktion.
 
-- Nur auf kalibrierte Punkte (±15 px).
+- Klicks nur auf kalibrierte Punkte (±15 px), Ziehen nur innerhalb kalibrierter Bereiche.
 - Nur, wenn dort ein TradingView-Fenster liegt (Fenstertitel oder Programmname).
-- Höchstens 200 Klicks pro Lauf.
-- Jede Aktion wird geloggt. pyautogui-Failsafe: Maus in die linke obere Ecke = Abbruch.
+- Tippen nur, wenn TradingView im Vordergrund ist.
+- Höchstens 200 Aktionen pro Lauf, jede Aktion wird geloggt.
+- pyautogui-Failsafe: Maus in die linke obere Ecke = Abbruch.
 """
 from __future__ import annotations
 
 from typing import Callable
+
+from .config import in_rect
 
 MAX_CLICKS = 200
 TOLERANCE = 15
@@ -18,10 +21,36 @@ class SafetyError(RuntimeError):
     pass
 
 
-def _real_click(x: int, y: int):
-    import pyautogui
-    pyautogui.FAILSAFE = True
-    pyautogui.click(x, y)
+class PyAutoGuiBackend:
+    """Die echten Maus-/Tastaturaktionen."""
+
+    def __init__(self):
+        import pyautogui
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.05
+        self.pg = pyautogui
+
+    def click(self, x: int, y: int, double: bool = False):
+        if double:
+            self.pg.doubleClick(x, y)
+        else:
+            self.pg.click(x, y)
+
+    def drag(self, x1: int, y1: int, x2: int, y2: int):
+        self.pg.moveTo(x1, y1)
+        self.pg.mouseDown(button="left")
+        self.pg.moveTo(x2, y2, duration=0.4)
+        self.pg.mouseUp(button="left")
+
+    def type_text(self, text: str):
+        self.pg.hotkey("ctrl", "a")
+        self.pg.write(text, interval=0.03)
+
+    def press(self, key: str):
+        self.pg.press(key)
+
+    def move(self, x: int, y: int):
+        self.pg.moveTo(x, y)
 
 
 def _real_window(x: int, y: int) -> tuple[str, str]:
@@ -29,17 +58,35 @@ def _real_window(x: int, y: int) -> tuple[str, str]:
     return winutil.window_title_at(x, y), winutil.window_exe_at(x, y)
 
 
+def _real_foreground() -> tuple[str, str]:
+    from . import winutil
+    return winutil.foreground_info()
+
+
+def _is_tv(title: str, exe: str) -> bool:
+    return MARKER in title.lower() or MARKER in exe.lower()
+
+
 class Guard:
     def __init__(self, cfg: dict, journal, *, max_clicks: int = MAX_CLICKS,
-                 click_fn: Callable[[int, int], None] = _real_click,
-                 window_fn: Callable[[int, int], tuple[str, str]] = _real_window):
+                 backend=None,
+                 window_fn: Callable[[int, int], tuple[str, str]] = _real_window,
+                 foreground_fn: Callable[[], tuple[str, str]] = _real_foreground):
         self.cfg = cfg
         self.journal = journal
         self.max_clicks = max_clicks
-        self.click_fn = click_fn
+        self._backend = backend
         self.window_fn = window_fn
+        self.foreground_fn = foreground_fn
         self.count = 0
 
+    @property
+    def backend(self):
+        if self._backend is None:
+            self._backend = PyAutoGuiBackend()
+        return self._backend
+
+    # ------------------------------------------------------------ Prüfungen
     def allowed_points(self) -> list[tuple[str, int, int]]:
         pts = []
         if self.cfg.get("naechste_kerze"):
@@ -50,30 +97,83 @@ class Guard:
                 pts.append((f"{name}[{i}]", *st["punkt"]))
         return pts
 
-    def check(self, x: int, y: int) -> str:
-        """Gibt den Grund zurück, falls der Klick verboten ist, sonst ''."""
+    def _budget(self) -> str:
         if self.count >= self.max_clicks:
-            return f"Maximal {self.max_clicks} Klicks pro Lauf erreicht"
-        if not any(abs(x - px) <= TOLERANCE and abs(y - py) <= TOLERANCE
-                   for _, px, py in self.allowed_points()):
-            return f"Punkt ({x}, {y}) ist nicht kalibriert"
+            return f"Maximal {self.max_clicks} Aktionen pro Lauf erreicht"
+        return ""
+
+    def _window_at(self, x: int, y: int) -> str:
         title, exe = self.window_fn(x, y)
-        if MARKER not in title.lower() and MARKER not in exe.lower():
+        if not _is_tv(title, exe):
             return (f"An ({x}, {y}) liegt kein TradingView-Fenster "
                     f"(Titel '{title}', Programm '{exe}')")
         return ""
 
-    def click(self, x: int, y: int, what: str):
-        why = self.check(x, y)
-        if why:
-            self.journal.log_action(f"KLICK VERWEIGERT {what} ({x}, {y}): {why}")
-            raise SafetyError(why)
+    def check(self, x: int, y: int) -> str:
+        """Grund, warum ein Klick auf (x, y) verboten ist, sonst ''."""
+        if why := self._budget():
+            return why
+        if not any(abs(x - px) <= TOLERANCE and abs(y - py) <= TOLERANCE
+                   for _, px, py in self.allowed_points()):
+            return f"Punkt ({x}, {y}) ist nicht kalibriert"
+        return self._window_at(x, y)
+
+    def _refuse(self, what: str, why: str):
+        self.journal.log_action(f"VERWEIGERT {what}: {why}")
+        raise SafetyError(why)
+
+    def _done(self, what: str):
         self.count += 1
-        self.journal.log_action(f"Klick {self.count}/{self.max_clicks}: {what} ({x}, {y})")
-        self.click_fn(x, y)
+        self.journal.log_action(f"Aktion {self.count}/{self.max_clicks}: {what}")
+
+    # ------------------------------------------------------------ Aktionen
+    def click(self, x: int, y: int, what: str, double: bool = False):
+        if why := self.check(x, y):
+            self._refuse(f"{what} ({x}, {y})", why)
+        self._done(f"{'Doppelklick' if double else 'Klick'} {what} ({x}, {y})")
+        self.backend.click(x, y, double)
 
     def click_next(self):
         if not self.cfg.get("naechste_kerze"):
             raise SafetyError("'Nächste Kerze' ist nicht kalibriert")
         x, y = self.cfg["naechste_kerze"]
         self.click(x, y, "Nächste Kerze")
+
+    def drag(self, x1: int, y1: int, x2: int, y2: int, region: str, what: str):
+        rect = self.cfg.get(region)
+        why = self._budget()
+        if not why and not rect:
+            why = f"Bereich '{region}' ist nicht kalibriert"
+        if not why and not (in_rect(x1, y1, rect) and in_rect(x2, y2, rect)):
+            why = f"Ziehen ({x1},{y1})->({x2},{y2}) verlässt den Bereich '{region}'"
+        if not why:
+            why = self._window_at(x1, y1)
+        if why:
+            self._refuse(what, why)
+        self._done(f"Ziehen {what} ({x1},{y1})->({x2},{y2})")
+        self.backend.drag(x1, y1, x2, y2)
+
+    def _foreground_ok(self, what: str):
+        title, exe = self.foreground_fn()
+        if not _is_tv(title, exe):
+            self._refuse(what, f"TradingView ist nicht im Vordergrund (Titel '{title}', "
+                               f"Programm '{exe}')")
+
+    def type_text(self, text: str, what: str):
+        if why := self._budget():
+            self._refuse(what, why)
+        self._foreground_ok(what)
+        self._done(f"Tippe {what}: {text}")
+        self.backend.type_text(text)
+
+    def press(self, key: str, what: str):
+        if why := self._budget():
+            self._refuse(what, why)
+        self._foreground_ok(what)
+        self._done(f"Taste {key} ({what})")
+        self.backend.press(key)
+
+    def move_to(self, x: int, y: int, what: str):
+        """Maus nur bewegen (kein Klick) - zählt nicht, wird aber geloggt."""
+        self.journal.log_action(f"Maus nach ({x}, {y}): {what}")
+        self.backend.move(x, y)

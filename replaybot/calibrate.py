@@ -14,15 +14,20 @@ from . import config
 
 STEPS = [
     ("rect", "legende",
-     "Schritt 1/3: Ziehe ein Rechteck um die OHLC-Legende oben links (O... H... L... C...).\n"
+     "Schritt 1/4: Ziehe ein Rechteck um die OHLC-Legende oben links (O... H... L... C...).\n"
      "Etwas Rand lassen, aber nichts anderes mit einschließen. Dann Enter."),
     ("rect", "chart",
-     "Schritt 2/3: Ziehe ein Rechteck um den ganzen Kerzen-Bereich des Charts.\n"
+     "Schritt 2/4: Ziehe ein Rechteck um den ganzen Kerzen-Bereich des Charts.\n"
      "(Ist die Maus dort, liest der Bot nicht - die Legende zeigt sonst die Kerze unter der Maus.) Enter."),
     ("point", "naechste_kerze",
-     "Schritt 3/3: Klicke auf den Replay-Button VORWÄRTS  ▷|  (eine Kerze weiter).\n"
+     "Schritt 3/4: Klicke auf den Replay-Button VORWÄRTS  ▷|  (eine Kerze weiter).\n"
      "NICHT auf Play ▷ - Play spielt ab und überspringt Kerzen. Dann Enter."),
+    ("rect", "preisachse",
+     "Schritt 4/4: Ziehe ein Rechteck um die PREISACHSE rechts (die Zahlen-Spalte),\n"
+     "von ganz oben bis ganz unten. Nur nötig zum Zoomen beim Einzeichnen - "
+     "Enter ohne Rechteck = überspringen."),
 ]
+OPTIONAL = {"preisachse"}
 
 
 class Overlay:
@@ -94,6 +99,13 @@ class Overlay:
     def on_enter(self, _ev=None):
         kind, key, _ = self.steps[self.idx]
         if self.current is None:
+            if key not in OPTIONAL:
+                return
+            self.idx += 1                       # optionalen Schritt überspringen
+            if self.idx >= len(self.steps):
+                self.root.destroy()
+            else:
+                self.show_step()
             return
         ox, oy = self.mon["left"], self.mon["top"]
         if kind == "point":

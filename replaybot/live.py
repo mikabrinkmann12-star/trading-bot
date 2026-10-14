@@ -31,6 +31,7 @@ class LiveReader:
                  save_img: Callable[[object], str] | None = None,
                  clicker: Callable[[], None] | None = None, click_timeout: float | None = None,
                  click_pause: float = 2.0,
+                 on_fill: Callable[[StrategyEngine], None] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self.engine = engine
         self.journal = journal
@@ -52,6 +53,7 @@ class LiveReader:
         self.clicker = clicker
         self.click_timeout = click_timeout
         self.click_pause = click_pause
+        self.on_fill = on_fill
         self.clock = clock
         self.clicked_at: float | None = None
 
@@ -134,6 +136,12 @@ class LiveReader:
         self.seen.add(vals)
         self.minute += 5
         self.post(CANDLE, (self.engine.snapshot(), rep.events))
+        if rep.filled and self.on_fill is not None:
+            try:                          # Bot pausiert hier, bis fertig eingezeichnet ist
+                self.on_fill(self.engine)
+            except Exception as exc:
+                self._stop_error(f"Einzeichnen fehlgeschlagen: {exc}")
+                return False
         if self.engine.done or candle.minute >= EXIT_TIME:
             self.engine.end_of_data()
             self.journal.write_trade(self.engine.trade_row())
@@ -180,8 +188,33 @@ def install_f12(journal: Journal):
     keyboard.add_hotkey("f12", kill)
 
 
+def make_painter(cfg: dict, guard, post: Callable[[str, str], None]):
+    """Liefert on_fill(engine): Position einzeichnen + so zoomen, dass sie sichtbar ist."""
+    from .chartnav import ChartNav
+    from .draw import Drawer
+
+    drawer = Drawer(cfg, guard)
+    nav = ChartNav(cfg, guard, post=lambda t: post(t, "info"))
+
+    def paint(direction: str, entry: float, stop: float, target: float):
+        side = "Long" if direction == "long" else "Short"
+        post(f"Zeichne {side}-Position (Entry {entry:.2f}) ...", "warn")
+        drawer.draw(direction, entry, stop, target)
+        if nav.ready():
+            span = abs(target - stop)
+            lo, hi = min(stop, target) - 0.1 * span, max(stop, target) + 0.1 * span
+            if not nav.ensure_visible(lo, hi):
+                post("Position evtl. nicht ganz sichtbar (Zoom hat nicht gereicht).", "warn")
+            if cfg.get("naechste_kerze"):
+                guard.move_to(*cfg["naechste_kerze"], "Maus aus dem Chart")
+        else:
+            post("Preisachse nicht kalibriert - kein Zoom.", "warn")
+
+    return paint
+
+
 def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
-             auto: bool = False) -> int:
+             auto: bool = False, zeichnen: bool = False) -> int:
     from . import ocr, winutil
     from .safety import Guard
     from .window import StatusWindow
@@ -196,7 +229,14 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
     if auto and not cfg.get("naechste_kerze"):
         print("'Nächste Kerze' ist nicht kalibriert. Zuerst: python bot.py --kalibrieren")
         return 1
-    clicker = Guard(cfg, journal).click_next if auto else None
+    if zeichnen:
+        missing = [d for d in ("long", "short") if not (cfg.get("ablaeufe") or {}).get(d)]
+        if missing:
+            print("Einzeichnen ist noch nicht aufgenommen für: " + ", ".join(missing))
+            print("Zuerst: " + "  und  ".join(f"python bot.py --aufnehmen {d}" for d in missing))
+            return 1
+    guard = Guard(cfg, journal)
+    clicker = guard.click_next if auto else None
     install_f12(journal)
 
     engine = StrategyEngine(date)
@@ -208,13 +248,18 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         vals, text = ocr.read_ohlc(img)
         return vals, text, img
 
+    on_fill = None
+    if zeichnen:
+        painter = make_painter(cfg, guard, lambda t, lvl: q.put((STATUS, (t, lvl))))
+        on_fill = lambda e: painter(e.direction, e.entry, e.stop, e.target)  # noqa: E731
+
     reader = LiveReader(
         engine, journal, read_fn=read_fn, post=lambda k, p: q.put((k, p)),
         mouse_fn=winutil.mouse_pos, chart_rect=cfg.get("chart"), start=start,
         max_open_gap=float(cfg.get("max_open_luecke", 25.0)),
         save_img=lambda img: str(ocr.save_debug(img, journal.out / "logs", "fehler")),
         clicker=clicker, click_timeout=float(cfg.get("klick_timeout") or 0) or None,
-        click_pause=float(cfg.get("klick_pause", 2.0)))
+        click_pause=float(cfg.get("klick_pause", 2.0)), on_fill=on_fill)
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(engine.snapshot())
@@ -254,4 +299,42 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
     stop.set()
     config.save(cfg, cfg_path)  # Fensterposition merken
     journal.log_action("Ende live")
+    return 0
+
+
+def run_draw_test(direction: str, out_dir: str, cfg_path: str = "config.json") -> int:
+    """Einmal eine Box mit Beispielwerten um den aktuellen Kurs einzeichnen (ohne Replay-Lauf)."""
+    from . import ocr
+    from .safety import Guard
+
+    cfg = config.load(cfg_path)
+    if not cfg.get("legende"):
+        print("Noch nicht kalibriert. Zuerst: python bot.py --kalibrieren")
+        return 1
+    if not (cfg.get("ablaeufe") or {}).get(direction):
+        print(f"Noch nicht aufgenommen. Zuerst: python bot.py --aufnehmen {direction}")
+        return 1
+    ocr.setup_tesseract(cfg.get("tesseract"))
+    journal = Journal(out_dir)
+    install_f12(journal)
+    vals, text = ocr.read_ohlc(ocr.grab(cfg["legende"]))
+    if vals is None:
+        print(f"Legende nicht lesbar ({text!r}) - Maus aus dem Chart nehmen und neu versuchen.")
+        return 1
+    entry = vals[3]
+    if direction == "long":
+        stop, target = entry - 20, entry + 40
+    else:
+        stop, target = entry + 20, entry - 40
+    print(f"Test: {direction} Entry {entry:.2f}, Stop {stop:.2f}, Ziel {target:.2f}")
+    print("In 3 Sekunden geht es los - Maus nicht anfassen. F12 = Abbruch.")
+    time.sleep(3)
+    journal.log_action(f"Zeichnen-Test {direction}")
+    painter = make_painter(cfg, Guard(cfg, journal), lambda t, lvl: print(f"  {t}"))
+    try:
+        painter(direction, entry, stop, target)
+    except Exception as exc:
+        print(f"FEHLER: {exc}")
+        return 1
+    print("Fertig. Prüfe im Chart: Box da? Entry/Stop/Ziel richtig? Alles sichtbar?")
     return 0

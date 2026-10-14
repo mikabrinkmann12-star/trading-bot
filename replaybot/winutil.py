@@ -73,3 +73,38 @@ def window_exe_at(x: int, y: int) -> str:
         return ""
     finally:
         kernel32.CloseHandle(handle)
+
+
+def foreground_info() -> tuple[str, str]:
+    """(Titel, Programmname) des Fensters im Vordergrund."""
+    if sys.platform != "win32":
+        return "", ""
+    import ctypes
+    import os
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    hwnd = user32.GetForegroundWindow()
+    buf = ctypes.create_unicode_buffer(512)
+    user32.GetWindowTextW(hwnd, buf, 512)
+    title = buf.value
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    exe = ""
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)
+    if handle:
+        try:
+            pbuf = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(1024)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, pbuf, ctypes.byref(size)):
+                exe = os.path.basename(pbuf.value)
+        finally:
+            kernel32.CloseHandle(handle)
+    return title, exe
+
+
+def left_button_down() -> bool:
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    return bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000)

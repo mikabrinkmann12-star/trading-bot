@@ -221,3 +221,66 @@ def test_auto_pause_nach_klick(tmp_path):
         now[0] += 0.5
     gaps = [b - a for a, b in zip(click_times, click_times[1:])]
     assert gaps and min(gaps) >= 2.0
+
+
+def test_einzeichnen_genau_einmal_bei_fuellung_vor_naechstem_klick(tmp_path):
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    log = []
+
+    def click():
+        log.append(("klick", replay.i))
+        replay.click()
+
+    def on_fill(e):
+        log.append(("zeichne", e.direction, e.entry, e.stop, e.target, e.candles[-1].time))
+    engine = StrategyEngine("2026-09-14")
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read, post=lambda k, p: None,
+                        clicker=click, click_pause=0, on_fill=on_fill)
+    run_all(reader, 500)
+    draws = [x for x in log if x[0] == "zeichne"]
+    assert draws == [("zeichne", "long", 28962.25, 28874.75, 29137.25, "10:35")]
+    i = log.index(draws[0])
+    assert log[i - 1] == ("klick", 18)        # davor wurde 10:35 (Index 19) geholt
+    assert log[i + 1] == ("klick", 19)        # erst nach dem Zeichnen geht es weiter
+
+
+def test_einzeichnen_auch_wenn_fuellkerze_stop_trifft(tmp_path):
+    # Tag a: gefüllt 10:00, Stop 10:05 -> eine Zeichnung bei 10:00
+    cs = read_candles(DATA / "2026-09-25.csv")
+    replay = FakeReplay(cs)
+    draws = []
+    engine = StrategyEngine("2026-09-25")
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read, post=lambda k, p: None,
+                        clicker=replay.click, click_pause=0, start="09:10",
+                        on_fill=lambda e: draws.append(e.candles[-1].time))
+    run_all(reader, 500)
+    assert draws == ["10:00"]
+
+
+def test_kein_trade_kein_einzeichnen(tmp_path):
+    from replaybot.models import Candle
+    # steigt stetig -> Long, aber nie ein Swing-Hoch -> kein BOS -> kein Trade
+    rising = [Candle(f"09:{m:02d}", 100 + i / 4, 101 + i / 4, 99 + i / 4, 100 + i / 4)
+              for i, m in enumerate(range(0, 60, 5))]
+    replay = FakeReplay(rising)
+    draws = []
+    engine = StrategyEngine("x")
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read, post=lambda k, p: None,
+                        clicker=replay.click, click_pause=0, on_fill=lambda e: draws.append(1))
+    run_all(reader, 500)
+    assert engine.result == "Kein Trade" and draws == []
+
+
+def test_fehler_beim_zeichnen_stoppt(tmp_path):
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    posts = []
+
+    def boom(e):
+        raise RuntimeError("Dialog nicht gefunden")
+    engine = StrategyEngine("2026-09-14")
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read,
+                        post=lambda k, p: posts.append((k, p)), clicker=replay.click,
+                        click_pause=0, on_fill=boom)
+    run_all(reader, 500)
+    assert posts[-1][0] == ERROR and "Einzeichnen" in posts[-1][1]
+    assert engine.candles[-1].time == "10:35"

@@ -52,3 +52,30 @@ def render(o, h, l, c, size=13, dark=False):
 def test_legende_lesen(ohlc, size, dark):
     vals, text = read_ohlc(render(*ohlc, size=size, dark=dark))
     assert vals == pytest.approx(ohlc), text
+
+
+def render_axis(center, ppp, dark=False, cur=None, h=800, w=70):
+    """Nachgebaute Preisachse (wie test_chartnav.AXIS: oben bei y=80, 800 px hoch)."""
+    from test_chartnav import labels_for
+    font = ImageFont.truetype(FONT, 11)
+    bg = (19, 23, 34) if dark else (255, 255, 255)
+    fg = (178, 181, 190) if dark else (19, 23, 34)
+    img = Image.new("RGB", (w, h), bg)
+    d = ImageDraw.Draw(img)
+    for y, p in labels_for(center, ppp):
+        d.text((6, y - 80 - 7), de(p), font=font, fill=fg)
+    if cur:
+        yy = h / 2 - (cur - center) / ppp
+        d.rectangle((0, yy - 9, w, yy + 9), fill=(41, 98, 255))
+        d.text((6, yy - 7), de(cur), font=font, fill=(255, 255, 255))
+    return np.array(img)[:, :, ::-1].copy()
+
+
+@pytest.mark.parametrize("ppp", [0.25, 0.6, 1.5])
+@pytest.mark.parametrize("dark", [False, True])
+def test_preisachse_lesen(ppp, dark, monkeypatch):
+    from replaybot import chartnav, ocr
+    monkeypatch.setattr(ocr, "grab", lambda rect: render_axis(30868.0, ppp, dark, cur=30868.25))
+    a, b = chartnav.fit_scale(chartnav.read_axis_labels([1600, 80, 70, 800]))
+    assert a == pytest.approx(-ppp, rel=0.01)
+    assert a * 480 + b == pytest.approx(30868.0, abs=2)

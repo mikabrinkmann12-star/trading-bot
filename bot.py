@@ -5,6 +5,9 @@
   python bot.py --kalibrieren                              # einmalig: Legende/Buttons markieren
   python bot.py --live --datum 2026-09-25                  # Bildschirm mitlesen (du klickst)
   python bot.py --live --auto --datum 2026-09-25           # Bot klickt selbst durch
+  python bot.py --aufnehmen long                           # Einzeichnen einmal vormachen
+  python bot.py --zeichnen-test long                       # Einzeichnen einzeln testen
+  python bot.py --live --auto --zeichnen --datum ...       # durchklicken + Position einzeichnen
 """
 from __future__ import annotations
 
@@ -89,6 +92,12 @@ def main(argv=None) -> int:
                    help="Legende vom Bildschirm lesen (du klickst 'Nächste Kerze')")
     p.add_argument("--auto", action="store_true",
                    help="mit --live: Bot klickt 'Nächste Kerze' selbst")
+    p.add_argument("--zeichnen", action="store_true",
+                   help="mit --live: bei Füllung Long/Short-Position einzeichnen und zoomen")
+    p.add_argument("--aufnehmen", choices=["long", "short"],
+                   help="Einzeichnen der Long-/Short-Position einmal vormachen und speichern")
+    p.add_argument("--zeichnen-test", choices=["long", "short"],
+                   help="Einmal eine Beispiel-Position einzeichnen (Test ohne Replay-Lauf)")
     p.add_argument("--start", default="09:00",
                    help="Uhrzeit der Kerze, auf der das Replay beim Start steht (Standard 09:00)")
     p.add_argument("--config", default="config.json", help="Pfad zur config.json")
@@ -98,16 +107,23 @@ def main(argv=None) -> int:
 
     if args.csv:
         return run_csv(args)
-    if args.kalibrieren or args.live:
+    if args.kalibrieren or args.live or args.aufnehmen or args.zeichnen_test:
         from replaybot import winutil
         winutil.set_dpi_aware()
+    if args.aufnehmen:
+        from replaybot import recorder
+        return 0 if recorder.record(args.aufnehmen, args.config) else 1
+    if args.zeichnen_test:
+        from replaybot.live import run_draw_test
+        return run_draw_test(args.zeichnen_test, args.ausgabe, args.config)
     if args.kalibrieren:
         from replaybot import calibrate
         return 0 if calibrate.run(args.config) else 1
     if args.live:
         from replaybot.live import run_live
         date = args.datum or input("Datum des Replay-Tages (z.B. 2026-09-25): ").strip()
-        return run_live(date, args.start, args.ausgabe, args.config, auto=args.auto)
+        return run_live(date, args.start, args.ausgabe, args.config, auto=args.auto,
+                        zeichnen=args.zeichnen)
     p.print_help()
     return 1
 

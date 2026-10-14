@@ -8,7 +8,7 @@ Der Bot liest die Kerzen vom Bildschirm, rechnet die Strategie und zeigt dir Ent
 | 1 | Rechenkern + CSV-Test | fertig |
 | 2 | Bildschirm lesen (OCR) + Kalibrierung + Fenster | fertig |
 | 3a | `--auto`: Bot klickt „Nächste Kerze“ selbst | fertig, bitte testen |
-| 3b | `--orders`: Bot setzt die Limit-Order | folgt |
+| 3b | `--zeichnen`: Bot zeichnet die Long-/Short-Position bei Füllung ein und zoomt | fertig, bitte testen |
 
 ---
 
@@ -41,6 +41,7 @@ python bot.py --kalibrieren
   1. Ein **Rechteck um die OHLC-Legende** oben links ziehen (O… H… L… C…), dann **Enter**.
   2. Ein **Rechteck um den Kerzenbereich** des Charts ziehen, dann **Enter**.
   3. Auf den Replay-Button **Vorwärts ▷|** klicken (rechts neben Play), dann **Enter**. **Nicht auf Play ▷**, denn Play spielt durch und überspringt Kerzen.
+  4. Ein **Rechteck um die Preisachse** rechts ziehen (die Zahlen-Spalte, ganz oben bis ganz unten), dann **Enter**. Das brauchst du nur fürs Zoomen beim Einzeichnen. Enter ohne Rechteck überspringt den Schritt.
 - `Esc` bricht ab. Zum Schluss steht im schwarzen Fenster „Test-OCR: O … H … L … C …“. **Vergleich das mit dem Chart.**
 
 ### B) Automatisch durchlaufen lassen (empfohlen)
@@ -72,6 +73,42 @@ Optional mit Abfrage: `--pruefen`.
 
 ---
 
+### D) Long/Short-Position einzeichnen lassen
+Der Bot zeichnet bei der **Füllung** die Position mit dem TradingView-Werkzeug ein und zoomt so, dass Entry, Stop und Ziel sichtbar sind. Währenddessen klickt er nicht weiter.
+
+**1. Einmal vormachen, je für Long und für Short:**
+```
+python bot.py --aufnehmen long
+```
+Dann machst du es in TradingView **einmal** vor:
+
+| Schritt | Du machst | Taste danach |
+|---|---|---|
+| 1 | Klick auf das Long-Positions-Werkzeug | – |
+| 2 | Klick in den Chart (rechts, wo Platz ist) | – |
+| 3 | Doppelklick auf die neue Box (Einstellungen gehen auf) | – |
+| 4 | Klick ins Feld **Einstiegspreis** | **F6** |
+| 5 | Klick ins **Preis**-Feld vom Gewinn-/Ziel-Niveau | **F8** |
+| 6 | Klick ins **Preis**-Feld vom Stopp-Niveau | **F7** |
+| 7 | Klick auf **OK** | – |
+| | fertig | **F9** (abbrechen: **F10**) |
+
+Danach `python bot.py --aufnehmen short` genauso mit dem Short-Werkzeug. Die Boxen, die du beim Vormachen zeichnest, kannst du löschen.
+
+**2. Einzeln testen**, ohne einen Replay-Lauf:
+```
+python bot.py --zeichnen-test long
+```
+Der Bot zeichnet eine Beispiel-Box: Entry = aktueller Kurs, Stop 20 Punkte drunter, Ziel 40 Punkte drüber. Prüf dann, ob die Box da ist, die Zahlen stimmen und alles sichtbar ist.
+
+**3. Im Auto-Lauf:**
+```
+python bot.py --live --auto --zeichnen --datum 2026-09-25
+```
+
+Wichtig: Die Werkzeugleiste und der Einstellungsdialog müssen beim Lauf **an derselben Stelle** sein wie beim Vormachen. Wenn du das Layout änderst, musst du neu aufnehmen.
+Das Dezimalzeichen beim Tippen ist `,`. Will TradingView bei dir einen Punkt, trag in `config.json` `"dezimal": "."` ein.
+
 ## Wenn was nicht geht
 | Meldung | Lösung |
 |---|---|
@@ -82,6 +119,9 @@ Optional mit Abfrage: `--pruefen`.
 | `Open ... passt nicht zum letzten Close` | Kerze übersprungen oder Maus über dem Chart. Replay zurück auf 9:00 und neu starten |
 | Bot wartet ewig („Warte auf Kerze ... seit 30 s“) | Falscher Button kalibriert? Es muss **Vorwärts ▷|** sein, nicht Play ▷. Neu kalibrieren |
 | `Klick verweigert: kein TradingView-Fenster` | Am „Nächste Kerze“-Punkt liegt ein anderes Fenster. TradingView nach vorne holen oder neu kalibrieren |
+| `Einzeichnen ist noch nicht aufgenommen` | Zuerst `--aufnehmen long` und `--aufnehmen short` |
+| Box falsch / Dialog geht nicht auf | Layout geändert? Neu aufnehmen. Mit `--zeichnen-test` prüfen. In `config.json` bei `"zeichnen_pause"` mehr Zeit geben (z.B. `1.0`) |
+| `Position evtl. nicht ganz sichtbar` | Preisachse neu kalibrieren (Schritt 4), Rechteck nur um die Zahlen-Spalte |
 | Zahlen falsch | Screenshot vom Bot-Fenster und der Legende schicken. Fehlerbilder liegen in `logs\` |
 
 ## Dateien
@@ -106,7 +146,9 @@ Optional mit Abfrage: `--pruefen`.
 6. **Ergebnis:** Ziel +2R, Stop −1R, Zeit-Exit (Close − Entry) / Risiko.
 
 ## Sicherheit
-- Phase 2 klickt **nichts**.
-- Ab Phase 3 klickt der Bot nur in kalibrierten Punkten und nur, wenn dort ein Fenster „TradingView“ liegt.
-- Orders setzt er nur, wenn im Handelspanel „Paper“ oder „Replay“ steht.
-- Pro Lauf sind höchstens 200 Klicks erlaubt. F12 stoppt sofort, Maus in die linke obere Ecke ebenfalls.
+- Der Bot klickt nur auf kalibrierte oder aufgenommene Punkte, und nur, wenn dort TradingView liegt.
+- Ziehen geht nur innerhalb des kalibrierten Chart- bzw. Preisachsen-Bereichs.
+- Tippen geht nur, wenn TradingView im Vordergrund ist.
+- Orders setzt er **keine**, er zeichnet nur ein.
+- Pro Lauf sind höchstens 200 Aktionen erlaubt, jede steht in `logs\aktionen.log`.
+- F12 stoppt sofort, Maus in die linke obere Ecke ebenfalls.
