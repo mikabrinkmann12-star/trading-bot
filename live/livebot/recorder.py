@@ -42,6 +42,10 @@ ANLEITUNG = {
   3. Take Profit einschalten (Haken) und Klick ins TP-PREISFELD -> F8
   4. Stop Loss einschalten (Haken) und Klick ins SL-PREISFELD -> F7
   5. Klick auf den Bestätigen-/Kaufen-Knopf
+  WICHTIG: Klicke in Preisfelder immer auf die ZAHL links im Feld, NIE auf die Symbole rechts
+  daneben (z.B. das Pfeil-Symbol 'Werte umschalten' oder 'Ticks').
+  Vor dem Vormachen müssen Take Profit und Stop Loss AUSGESCHALTET sein; der Bot macht später
+  genau dieselben Klicks. Schalter, die schon an sind, würde er sonst wieder ausschalten.
   (In der Paper-Übung darfst du dabei wirklich kaufen - danach die Position selbst schließen.)""",
     "breakeven": """  1. Position bzw. ihren Stop Loss bearbeiten (z.B. Doppelklick auf die SL-Linie oder
      'Position bearbeiten' im Handelspanel)

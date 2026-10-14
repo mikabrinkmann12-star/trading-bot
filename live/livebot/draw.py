@@ -244,14 +244,14 @@ class Drawer:
         self.play(direction, {"entry": entry, "stop": stop, "ziel": target}, anchor=anchor)
 
     def play(self, name: str, values: dict, anchor=None, final_esc: bool = True,
-             pause: float | None = None):
+             pause: float | None = None, decimal: str | None = None):
         """Einen aufgenommenen Ablauf abspielen (Einzeichnen, Kaufen, Break-even, ...)."""
         steps = (self.cfg.get("ablaeufe") or {}).get(name)
         if not steps:
             raise SafetyError(f"Kein Ablauf '{name}' aufgenommen "
                               f"(python live.py --aufnehmen {name})")
         direction = name
-        dec = self.cfg.get("dezimal", ",")
+        dec = decimal or self.cfg.get("dezimal", ",")
         if pause is None:
             pause = float(self.cfg.get("zeichnen_pause", 1.0))
         dx = int(self.cfg.get("doppelklick_versatz", 12))

@@ -290,3 +290,13 @@ def test_gar_keine_veraenderung_speichert_diagnosebilder():
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
     assert saved == ["zeichnen_dialog_vorher", "zeichnen_dialog_nachher"]
     assert not any(c[0] == "type" for c in g.calls)
+
+
+def test_play_mit_punkt_als_dezimalzeichen():
+    dr, g = make_drawer()
+    dr.cfg["ablaeufe"]["kaufen"] = [
+        {"punkt": [900, 300], "doppel": False, "tippe": "ziel"},
+        {"punkt": [900, 400], "doppel": False, "tippe": "stop"}]
+    dr.snap = None
+    dr.play("kaufen", {"ziel": 30189.25, "stop": 30089.25}, decimal=".")
+    assert [c[2] for c in g.calls if c[0] == "type"] == ["30189.25", "30089.25"]

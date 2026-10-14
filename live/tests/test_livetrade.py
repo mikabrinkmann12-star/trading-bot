@@ -193,8 +193,9 @@ class FakeDrawer:
     def __init__(self):
         self.played = []
 
-    def play(self, name, values, final_esc=True, pause=None):
+    def play(self, name, values, final_esc=True, pause=None, decimal=None):
         self.played.append((name, values))
+        self.decimals = getattr(self, "decimals", []) + [decimal]
 
 
 def test_kein_paper_keine_order(tmp_path):
@@ -275,3 +276,16 @@ def test_aktions_test_bricht_bei_fehler_ab(tmp_path):
     assert not run_sequence(acts, 30000.0, ["kaufen", "schliessen"], say=out.append,
                             sleep=lambda s: None)
     assert any("Kein Paper-Konto" in o for o in out) and not any("'schliessen' ausgeführt" in o for o in out)
+
+
+def test_bestellfenster_bekommt_punkt_als_dezimalzeichen(tmp_path):
+    dr = FakeDrawer()
+    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Papierhandel")
+    acts = LiveActions({"menge": 1, "dezimal": ","}, dr, lock)
+    acts.market("long", 90, 120)
+    acts.breakeven(100)
+    acts.close()
+    assert dr.decimals == [".", ".", "."]
+    acts2 = LiveActions({"menge": 1, "dezimal_order": ","}, FakeDrawer(), lock)
+    acts2.market("long", 90, 120)
+    assert acts2.drawer.decimals == [","]

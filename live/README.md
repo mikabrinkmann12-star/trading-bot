@@ -76,6 +76,9 @@ python live.py --auswertung
 ```
 
 ## Gut zu wissen
+- **Bestellfenster:** Es nimmt nur den **Punkt** als Dezimalzeichen (der Bot tippt `30189.25`). Das stellt `"dezimal_order"` in `config.json` ein, Standard `"."`.
+- **Schalter für Take Profit / Stop Loss:** Der Bot klickt die Schalter genau so, wie du sie vorgemacht hast. Vor `--aufnehmen kaufen|verkaufen` und **vor jedem Test** müssen beide **aus** sein. Sonst schaltet er sie wieder aus.
+- **Klickpunkte in Preisfeldern:** immer die **Zahl links** im Feld anklicken, nie das ⇄-Symbol rechts daneben.
 - Füllkurs und Ergebnis sind die Rechnung des Bots aus der Legende. Was TradingView wirklich ausführt, kann wegen Slippage um ein paar Ticks abweichen.
 - Zwischen Entry-Berührung und Order liegen einige Sekunden (Paper-Prüfung, Felder ausfüllen, Felder nachprüfen).
 - TP und SL führt **TradingView** aus. Der Bot verfolgt nur mit, damit er um 12:00 weiß, ob die Position noch offen ist.

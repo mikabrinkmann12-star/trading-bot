@@ -29,6 +29,10 @@ class LiveActions:
     def _order_pause(self) -> float:
         return float(self.cfg.get("order_pause", 0.3))
 
+    def _dec(self) -> str:
+        """Das Bestellfenster nimmt nur den PUNKT (ein Komma wird verschluckt -> 100x zu groß)."""
+        return self.cfg.get("dezimal_order", ".")
+
     def market(self, direction: str, stop: float, target: float):
         name = "kaufen" if direction == LONG else "verkaufen"
         if not self.enabled:
@@ -37,7 +41,8 @@ class LiveActions:
         self.paper.check(f"Markt {name}")
         values = {"menge": int(self.cfg.get("menge", 1)), "stop": stop, "ziel": target}
         self.around(lambda: self.drawer.play(name, values, final_esc=False,
-                                             pause=self._order_pause()))
+                                             pause=self._order_pause(),
+                                             decimal=self._dec()))
 
     def breakeven(self, entry: float):
         if not self.enabled:
@@ -45,7 +50,8 @@ class LiveActions:
             return
         self.paper.check("Break-even")
         self.around(lambda: self.drawer.play("breakeven", {"entry": entry}, final_esc=False,
-                                             pause=self._order_pause()))
+                                             pause=self._order_pause(),
+                                             decimal=self._dec()))
 
     def close(self):
         if not self.enabled:
@@ -53,7 +59,8 @@ class LiveActions:
             return
         self.paper.check("Position schließen")
         self.around(lambda: self.drawer.play("schliessen", {}, final_esc=False,
-                                             pause=self._order_pause()))
+                                             pause=self._order_pause(),
+                                             decimal=self._dec()))
 
     def draw(self, direction: str, entry: float, stop: float, target: float):
         if self.painter is None or not (self.cfg.get("ablaeufe") or {}).get(direction):
