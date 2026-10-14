@@ -97,6 +97,11 @@ Aufnahme {side}-Position. Mach es jetzt EINMAL in TradingView vor:
             down = winutil.left_button_down()
             if down and not was_down:
                 x, y = winutil.mouse_pos()
+                title, exe = winutil.window_title_at(x, y), winutil.window_exe_at(x, y)
+                if "tradingview" not in (title + exe).lower():
+                    print(f"  (Klick auf ({x}, {y}) ignoriert - kein TradingView-Fenster)")
+                    was_down = down
+                    continue
                 n = len(rec.steps)
                 rec.add_click(x, y, time.monotonic())
                 if len(rec.steps) > n:

@@ -53,24 +53,25 @@ def _masked(img, origin, exclude):
 
 def candle_candidates(img, origin: tuple[int, int] = (0, 0), exclude: list[Rect] = (),
                       min_run: int = 5) -> list[int]:
-    """Bildschirm-x aller Kerzen-Kandidaten, von RECHTS nach LINKS."""
+    """Bildschirm-x aller Kerzen-Kandidaten, von RECHTS nach LINKS.
+
+    Nur "starke" Spalten (>= min_run senkrecht zusammenhängende Kerzenpixel) zählen. Eine
+    Kerze = zusammenhängende starke Spalten (Körper) bzw. nur der Docht bei flachem Körper -
+    beides liefert die Kerzenmitte. Waagerechte Linien (Kurslinie, Level-Linien von
+    Indikatoren) sind höchstens 2-3 px dick und verbinden deshalb keine Kerzen."""
     runs = longest_runs(_masked(img, origin, exclude))
-    w = len(runs)
     strong = runs >= min_run
     out: list[int] = []
-    x = w - 1
+    x = len(runs) - 1
     while x >= 0:
         if not strong[x]:
             x -= 1
             continue
         right = x
-        while right + 1 < w and runs[right + 1] >= 2:
-            right += 1
-        left = x
-        while left - 1 >= 0 and runs[left - 1] >= 2:
-            left -= 1
-        out.append(origin[0] + (left + right) // 2)
-        x = left - 1
+        while x - 1 >= 0 and strong[x - 1]:
+            x -= 1
+        out.append(origin[0] + (x + right) // 2)
+        x -= 1
     return out
 
 
@@ -91,7 +92,7 @@ def legend_zone(legend: Rect | None, chart: Rect) -> Rect | None:
         return None
     left, top, w, h = legend
     c_left, c_top, _cw, _ch = chart
-    return (c_left, c_top, (left + w + 250) - c_left, (top + h + 60) - c_top)
+    return (c_left, c_top, (left + w + 150) - c_left, (top + h + 60) - c_top)
 
 
 def exclusion_zones(cfg: dict, extra: list[Rect] = ()) -> list[Rect]:
@@ -137,13 +138,18 @@ def locate_current_candle(cfg: dict, current: tuple, previous: tuple | None = No
     for i, x in enumerate(cands[:max_candidates]):
         if not _same(legend_at(x), current):
             continue
-        # eine Kerze weiter links = der nächste Kandidat links davon (falls plausibel)
-        step = x - cands[i + 1] if i + 1 < len(cands) and 3 <= x - cands[i + 1] <= 80 \
-            else spacing
-        left_vals = legend_at(x - step)
-        ok = _same(left_vals, previous) if previous else (left_vals is not None
-                                                          and not _same(left_vals, current))
-        if ok:
-            return x, ""
+        # eine Kerze weiter links: Abstand zum nächsten Kandidaten und der typische Abstand
+        # (falls die vorherige Kerze ein Mini-Doji war und nicht als Kandidat auftaucht)
+        steps = []
+        if i + 1 < len(cands) and 3 <= x - cands[i + 1] <= 80:
+            steps.append(x - cands[i + 1])
+        if spacing not in steps:
+            steps.append(spacing)
+        for step in steps:
+            left_vals = legend_at(x - step)
+            ok = (_same(left_vals, previous) if previous
+                  else left_vals is not None and not _same(left_vals, current))
+            if ok:
+                return x, ""
     return None, ("Legende bestätigt keine Kerze (weder aktuelle Kerze an der Stelle noch "
                   "vorherige Kerze links daneben)")

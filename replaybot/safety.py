@@ -71,7 +71,9 @@ class Guard:
     def __init__(self, cfg: dict, journal, *, max_clicks: int = MAX_CLICKS,
                  backend=None,
                  window_fn: Callable[[int, int], tuple[str, str]] = _real_window,
-                 foreground_fn: Callable[[], tuple[str, str]] = _real_foreground):
+                 foreground_fn: Callable[[], tuple[str, str]] = _real_foreground,
+                 stop_event=None):
+        self.stop_event = stop_event        # gesetzt = Nutzer hat 'Stop' gedrückt
         self.cfg = cfg
         self.journal = journal
         self.max_clicks = max_clicks
@@ -98,6 +100,8 @@ class Guard:
         return pts
 
     def _budget(self) -> str:
+        if self.stop_event is not None and self.stop_event.is_set():
+            return "Bot wurde gestoppt"
         if self.count >= self.max_clicks:
             return f"Maximal {self.max_clicks} Aktionen pro Lauf erreicht"
         return ""

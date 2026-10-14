@@ -30,7 +30,11 @@ def print_status(engine: StrategyEngine):
 
 
 def run_csv(args) -> int:
-    candles = read_candles(args.csv)
+    try:
+        candles = read_candles(args.csv)
+    except (OSError, ValueError) as exc:
+        print(f"CSV nicht lesbar: {exc}")
+        return 1
     if not candles:
         print(f"Keine Kerzen in {args.csv} gefunden.")
         return 1
@@ -52,7 +56,11 @@ def run_csv(args) -> int:
                     raise QuizAbort()
             print(f"Kerze {c}")
             journal.log_candle(date, c, "csv")
-            rep = engine.on_candle(c)
+            try:
+                rep = engine.on_candle(c)
+            except ValueError as exc:
+                print(f"FEHLER: {exc}")
+                return 1
             if quiz is not None:
                 quiz.run(engine, rep)
             for ev in rep.events:

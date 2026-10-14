@@ -8,7 +8,8 @@ Der Bot liest die Kerzen vom Bildschirm, rechnet die Strategie und zeigt dir Ent
 | 1 | Rechenkern + CSV-Test | fertig |
 | 2 | Bildschirm lesen (OCR) + Kalibrierung + Fenster | fertig |
 | 3a | `--auto`: Bot klickt „Nächste Kerze“ selbst | fertig, bitte testen |
-| 3b | `--zeichnen`: Bot zeichnet die Long-/Short-Position bei Füllung ein und zoomt | fertig, bitte testen |
+| 3b | Bot zeichnet die Long-/Short-Position bei Füllung ein und zoomt (automatisch an, sobald aufgenommen) | fertig |
+| 4 | `--auswertung`: Statistik über viele Tage | fertig |
 
 ---
 
@@ -50,7 +51,7 @@ python bot.py --kalibrieren
    ```
    python bot.py --live --auto --datum 2026-09-25
    ```
-3. **Maus und Tastatur nicht anfassen.** Der Bot klickt selbst Kerze für Kerze weiter (nach jedem Klick 2 s Pause, einstellbar in `config.json` bei `"klick_pause"`), liest jede Kerze und rechnet.
+3. **Maus und Tastatur nicht anfassen.** Der Bot schiebt die Maus beim Start selbst aus dem Chart und klickt Kerze für Kerze weiter (nach jedem Klick 2 s Pause, einstellbar in `config.json` bei `"klick_pause"`), liest jede Kerze und rechnet.
 4. Ist der Trade fertig (oder gibt es keinen Trade), hört er auf. Das Ergebnis steht im Fenster und in `trades.csv`.
 
 **Not-Aus:** **F12**, oder die Maus in die **linke obere Bildschirmecke** schieben, oder der Knopf „Stop“.
@@ -125,6 +126,11 @@ Einstellbar in `config.json`, falls TradingView bei dir langsamer ist:
 python bot.py --live --auto --datum 2026-09-25
 ```
 Beim Start steht im schwarzen Fenster „Einzeichnen: AN“ oder „AUS“. Am Ende steht im Bot-Fenster, warum nichts eingezeichnet wurde, falls es keine Füllung gab (Kein Trade / nicht gefüllt). Ausschalten kannst du es mit `--ohne-zeichnen`.
+
+- Während des Einzeichnens **verschwindet das Bot-Fenster kurz**, damit es keine Kerze und kein Feld im Dialog verdeckt.
+- **Klappt das Einzeichnen nicht**, steht das rot im Fenster. Der Trade wird aber **trotzdem zu Ende gerechnet** und in `trades.csv` gespeichert. Nur „Stop“ oder F12 beenden den Lauf sofort.
+- Vor jedem Einzeichnen drückt er zweimal Esc, damit kein alter Dialog mehr offen ist. Nach OK prüft er, ob der Dialog wirklich zu ist.
+- Beim Vormachen (`--aufnehmen`) werden nur Klicks in TradingView aufgenommen. Klicks ins schwarze Fenster werden ignoriert.
 
 Wichtig: Die Werkzeugleiste und der Einstellungsdialog müssen beim Lauf **an derselben Stelle** sein wie beim Vormachen. Wenn du das Layout änderst, musst du neu aufnehmen.
 Das Dezimalzeichen beim Tippen ist `,`. Will TradingView bei dir einen Punkt, trag in `config.json` `"dezimal": "."` ein.

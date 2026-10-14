@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from replaybot.csv_source import read_candles
@@ -271,7 +272,7 @@ def test_kein_trade_kein_einzeichnen(tmp_path):
     assert engine.result == "Kein Trade" and draws == []
 
 
-def test_fehler_beim_zeichnen_stoppt(tmp_path):
+def test_fehler_beim_zeichnen_rechnet_trotzdem_zu_ende(tmp_path):
     replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
     posts = []
 
@@ -282,8 +283,22 @@ def test_fehler_beim_zeichnen_stoppt(tmp_path):
                         post=lambda k, p: posts.append((k, p)), clicker=replay.click,
                         click_pause=0, on_fill=boom)
     run_all(reader, 500)
-    assert posts[-1][0] == ERROR and "Einzeichnen" in posts[-1][1]
-    assert engine.candles[-1].time == "10:35"
+    assert any(k == STATUS and "Einzeichnen fehlgeschlagen" in p[0] for k, p in posts)
+    assert posts[-1][0] == DONE and engine.result == "Ziel"
+    assert "2026-09-14" in (tmp_path / "trades.csv").read_text(encoding="utf-8")
+
+
+def test_stop_beim_zeichnen_beendet_lauf(tmp_path):
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    posts = []
+
+    def stopped(e):
+        raise RuntimeError("Bot wurde gestoppt")
+    reader = LiveReader(StrategyEngine("x"), Journal(tmp_path), read_fn=replay.read,
+                        post=lambda k, p: posts.append((k, p)), clicker=replay.click,
+                        click_pause=0, on_fill=stopped)
+    run_all(reader, 500)
+    assert posts[-1][0] == ERROR
 
 
 def test_einzeichnen_standardmaessig_an_wenn_aufgenommen():
@@ -296,3 +311,25 @@ def test_einzeichnen_standardmaessig_an_wenn_aufgenommen():
     on, rec, info = drawing_mode(only_long, None)
     assert on is True and rec == ["long"] and "short fehlt" in info
     assert drawing_mode(only_long, True)[0] is None          # erzwungen, aber unvollständig
+
+
+def test_maus_auf_dem_naechste_kerze_button_blockiert_nicht(tmp_path):
+    """Liegt der Button im Chart-Rechteck, darf die Maus dort (nach dem Klick) nicht als
+    'Maus über dem Chart' gelten - sonst wartet der Bot ewig."""
+    v = (100.0, 101.0, 99.0, 100.5)
+    reader, engine, posts = make([(v, "")] * 4, tmp_path, mouse_fn=lambda: (905, 930),
+                                 chart_rect=[0, 0, 1000, 1000], safe_point=(900, 925))
+    run_all(reader, 4)
+    assert len(engine.candles) == 1
+
+
+def test_guard_stop_bricht_aktionen_ab(tmp_path):
+    import threading
+
+    from replaybot.safety import Guard, SafetyError
+    stop = threading.Event()
+    g = Guard({"naechste_kerze": [1, 1]}, Journal(tmp_path), backend=object(),
+              window_fn=lambda x, y: ("TradingView", ""), stop_event=stop)
+    stop.set()
+    with pytest.raises(SafetyError, match="gestoppt"):
+        g.click_next()

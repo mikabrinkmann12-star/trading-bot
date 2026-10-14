@@ -91,31 +91,37 @@ def test_anchor_pair():
 
 
 class Screen:
-    """Fake-Bildschirm: Dialog geht nach dem Doppelklick auf (oder nicht), Felder zeigen,
-    was getippt wurde (oder Müll)."""
+    """Fake-Bildschirm: Dialog geht nach dem Doppelklick auf (oder nicht) und beim Klick auf
+    OK (1000, 700) wieder zu; Felder zeigen, was getippt wurde (vorher den Standardwert)."""
 
-    def __init__(self, guard, dialog_opens=True, field_text=None):
+    def __init__(self, guard, dialog_opens=True, field_text=None, ok_closes=True):
         self.guard, self.dialog_opens, self.field_text = guard, dialog_opens, field_text
-        self.typed = []
+        self.ok_closes = ok_closes
+
+    def is_open(self):
+        calls = self.guard.calls
+        opened = self.dialog_opens and any(c[0] in ("dclick_in", "dclick") for c in calls)
+        closed = self.ok_closes and ("click", 1000, 700) in calls
+        return opened and not closed
 
     def snap(self, rect):
         np = pytest.importorskip("numpy")
-        opened = self.dialog_opens and any(c[0] == "dclick_in" or c[0] == "dclick"
-                                           for c in self.guard.calls)
-        return np.full((rect[3], rect[2], 3), 200 if opened else 30, dtype=np.uint8)
+        return np.full((rect[3], rect[2], 3), 200 if self.is_open() else 30, dtype=np.uint8)
 
     def read(self, img):
+        if not self.is_open():
+            return ""
         typed = [c[2] for c in self.guard.calls if c[0] == "type"]
         if self.field_text is not None:
             return self.field_text(len(typed))
-        return typed[-1] if typed else ""
+        return typed[-1] if typed else "29000.00"
 
 
-def make_drawer(dialog_opens=True, field_text=None):
+def make_drawer(dialog_opens=True, field_text=None, ok_closes=True):
     cfg = {"ablaeufe": {"long": full_long().validate()}, "chart": CHART_RECT,
            "naechste_kerze": [900, 925]}
     g = FakeGuardIn()
-    s = Screen(g, dialog_opens, field_text)
+    s = Screen(g, dialog_opens, field_text, ok_closes)
     t = [0.0]
 
     def sleep(sec):
@@ -183,3 +189,25 @@ def test_esc_ohne_tradingview_vorne_wird_uebersprungen():
     g = G()
     Drawer(cfg, g, sleep=lambda s: None, snap=None).draw("long", 1, 0, 3, anchor=(1333, 555))
     assert g.calls[0] == ("click", 700, 1010)
+
+
+def test_ok_nicht_getroffen_wird_erkannt():
+    dr, g = make_drawer(ok_closes=False)
+    with pytest.raises(SafetyError, match="OK wurde nicht getroffen"):
+        dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+
+
+def test_dialog_ohne_zahlenfeld_gilt_nicht_als_offen():
+    """Bild ändert sich (z.B. nur eine Werkzeugleiste), aber kein Zahlenfeld -> kein Tippen."""
+    dr, g = make_drawer(field_text=lambda n: "")
+    with pytest.raises(SafetyError, match="nicht aufgegangen"):
+        dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert not any(c[0] == "type" for c in g.calls)
+
+
+def test_fokus_klick_vorher_wird_nicht_zum_anlege_klick():
+    from replaybot.draw import anchor_pair
+    steps = full_long().validate()
+    focus = {"punkt": [300, 300], "doppel": False, "tippe": None}   # Klick in den Chart zum Fokus
+    steps = [focus] + steps
+    assert anchor_pair(steps, CHART_RECT) == (2, 3)

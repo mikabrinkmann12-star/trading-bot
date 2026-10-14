@@ -138,3 +138,23 @@ def test_gegenprobe_scheitert():
         CFG, (1.0, 2.0, 0.5, 1.5), None, grab=lambda r: img if tuple(r) == CHART else None,
         read_ohlc=lambda i: (None, ""), move=lambda x, y: None, sleep=lambda s: None)
     assert x is None and "Legende" in why
+
+
+def test_waagerechte_level_linie_verschmiert_kerze_nicht():
+    img = chart_img(CANDLES)
+    img[250:252, :] = BLUE          # 2 px dicke blaue Level-Linie quer durch alle Kerzen
+    cands = candle_candidates(img, origin=CHART[:2], exclude=exclusion_zones(CFG))
+    assert cands[0] == CHART[0] + 680
+    assert cands[1] == CHART[0] + 660
+
+
+def test_vorherige_kerze_doji_wird_trotzdem_bestaetigt():
+    """Die vorletzte Kerze ist so flach, dass sie kein Kandidat ist -> Gegenprobe nutzt den
+    typischen Abstand."""
+    candles = [c for c in CANDLES if c[0] != 660] + [(660, 260, 262, 261, 262, BLACK)]
+    img = chart_img(candles)
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+    tv = FakeTV(img, xs)
+    x, why = locate_current_candle(CFG, tv.vals(29), tv.vals(28), grab=tv.grab,
+                                   read_ohlc=tv.read, move=tv.move, sleep=lambda s: None)
+    assert x == CHART[0] + 680, why

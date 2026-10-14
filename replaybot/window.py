@@ -74,6 +74,14 @@ class StatusWindow:
         return (r.winfo_rootx() - 10, r.winfo_rooty() - 40,
                 r.winfo_width() + 20, r.winfo_height() + 50)
 
+    def set_visible(self, visible: bool):
+        if visible:
+            self.root.deiconify()
+            self.root.attributes("-topmost", True)
+        else:
+            self.root.withdraw()
+        self.root.update_idletasks()
+
     def after(self, ms: int, fn):
         self.root.after(ms, fn)
 

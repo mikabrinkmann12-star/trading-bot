@@ -32,7 +32,8 @@ class LiveReader:
                  clicker: Callable[[], None] | None = None, click_timeout: float | None = None,
                  click_pause: float = 2.0,
                  on_fill: Callable[[StrategyEngine], None] | None = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 safe_point: tuple[int, int] | None = None):
         self.engine = engine
         self.journal = journal
         self.read_fn = read_fn
@@ -56,6 +57,7 @@ class LiveReader:
         self.on_fill = on_fill
         self.clock = clock
         self.clicked_at: float | None = None
+        self.safe_point = safe_point        # 'Nächste Kerze'-Button: Maus dort ist ok
 
     @property
     def next_time(self) -> str:
@@ -68,7 +70,9 @@ class LiveReader:
         if self.clicked_at is not None and self.clock() - self.clicked_at < self.click_pause:
             return True                   # nach jedem Klick erst Pause, TradingView braucht Zeit
         pos = self.mouse_fn()
-        if pos and config.in_rect(pos[0], pos[1], self.chart_rect):
+        at_button = (pos and self.safe_point and abs(pos[0] - self.safe_point[0]) <= 15
+                     and abs(pos[1] - self.safe_point[1]) <= 15)
+        if pos and not at_button and config.in_rect(pos[0], pos[1], self.chart_rect):
             self.post(STATUS, ("Maus aus dem Chart nehmen - die Legende zeigt sonst die Kerze "
                                "unter der Maus.", "warn"))
             return True
@@ -140,8 +144,13 @@ class LiveReader:
             try:                          # Bot pausiert hier, bis fertig eingezeichnet ist
                 self.on_fill(self.engine)
             except Exception as exc:
-                self._stop_error(f"Einzeichnen fehlgeschlagen: {exc}")
-                return False
+                if "gestoppt" in str(exc):
+                    self._stop_error(str(exc))
+                    return False
+                # Zeichnen ist nur Anzeige - der Trade wird trotzdem zu Ende gerechnet
+                self.journal.log_action(f"Einzeichnen fehlgeschlagen: {exc}")
+                self.post(STATUS, (f"Einzeichnen fehlgeschlagen: {exc} - rechne den Trade "
+                                   f"trotzdem zu Ende.", "error"))
         if self.engine.done or candle.minute >= EXIT_TIME:
             self.engine.end_of_data()
             self.journal.write_trade(self.engine.trade_row())
@@ -271,13 +280,12 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
     if zeichnen is None:          # erzwungen, aber nicht vollständig aufgenommen
         return 1
     journal.log_action(info)
-    guard = Guard(cfg, journal)
-    clicker = guard.click_next if auto else None
-    install_f12(journal)
-
     engine = StrategyEngine(date)
     q: queue.Queue = queue.Queue()
     stop = threading.Event()
+    guard = Guard(cfg, journal, stop_event=stop)
+    clicker = guard.click_next if auto else None
+    install_f12(journal)
 
     def read_fn():
         img = ocr.grab(cfg["legende"])
@@ -285,7 +293,15 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         return vals, text, img
 
     ui = {"fenster": None}      # Rechteck des Bot-Fensters (beim Kerzensuchen ausblenden)
-    drawn = {"ok": False}
+    drawn = {"ok": False, "grund": ""}
+
+    def set_window_visible(visible: bool):
+        """Aus dem Reader-Thread: Bot-Fenster aus-/einblenden und warten, bis es passiert ist
+        (sonst verdeckt es evtl. die letzte Kerze oder Felder im Dialog)."""
+        done = threading.Event()
+        q.put(("fenster", (visible, done)))
+        done.wait(2.0)
+        time.sleep(0.3)
     on_fill = None
     if zeichnen:
         painter = make_painter(cfg, guard, lambda t, lvl: q.put((STATUS, (t, lvl))),
@@ -293,14 +309,22 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
 
         def paint_fill(e: StrategyEngine):
             if e.direction not in recorded:
+                drawn["grund"] = f"{e.direction} ist nicht aufgenommen"
                 q.put((STATUS, (f"{e.direction}-Einzeichnen nicht aufgenommen - übersprungen "
                                 f"(python bot.py --aufnehmen {e.direction}).", "warn")))
                 return
-            drawn["ok"] = True
             c = e.candles[-1]
             p = e.candles[-2] if len(e.candles) > 1 else None
-            painter(e.direction, e.entry, e.stop, e.target, current=(c.o, c.h, c.l, c.c),
-                    previous=(p.o, p.h, p.l, p.c) if p else None)
+            set_window_visible(False)
+            try:
+                painter(e.direction, e.entry, e.stop, e.target, current=(c.o, c.h, c.l, c.c),
+                        previous=(p.o, p.h, p.l, p.c) if p else None)
+            except Exception as exc:
+                drawn["grund"] = f"das Einzeichnen fehlschlug ({exc})"
+                raise
+            finally:
+                set_window_visible(True)
+            drawn["ok"] = True
         on_fill = paint_fill
 
     reader = LiveReader(
@@ -309,7 +333,8 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         max_open_gap=float(cfg.get("max_open_luecke", 25.0)),
         save_img=lambda img: str(ocr.save_debug(img, journal.out / "logs", "fehler")),
         clicker=clicker, click_timeout=float(cfg.get("klick_timeout") or 0) or None,
-        click_pause=float(cfg.get("klick_pause", 2.0)), on_fill=on_fill)
+        click_pause=float(cfg.get("klick_pause", 2.0)), on_fill=on_fill,
+        safe_point=tuple(cfg["naechste_kerze"]) if cfg.get("naechste_kerze") else None)
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(engine.snapshot())
@@ -327,6 +352,10 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
                 kind, payload = q.get_nowait()
                 if kind == STATUS:
                     win.set_status(*payload)
+                elif kind == "fenster":
+                    visible, done = payload
+                    win.set_visible(visible)
+                    done.set()
                 elif kind == CANDLE:
                     snap, events = payload
                     win.show(snap)
@@ -337,8 +366,9 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
                     win.show(payload)
                     msg = f"Fertig. Ergebnis gespeichert in {journal.trades}."
                     if zeichnen and not drawn["ok"]:
-                        msg += (f" Nichts eingezeichnet, weil es keine Füllung gab "
-                                f"({engine.result}).")
+                        msg += (f" Nichts eingezeichnet, weil {drawn['grund']}." if drawn["grund"]
+                                else f" Nichts eingezeichnet, weil es keine Füllung gab "
+                                     f"({engine.result}).")
                     elif not zeichnen:
                         msg += " Einzeichnen war AUS."
                     win.set_status(msg, "ok")
@@ -350,6 +380,10 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
             pass
         win.after(100, pump)
 
+    if auto:
+        # Im Auto-Modus fasst du die Maus nicht an - also selbst aus dem Chart nehmen,
+        # sonst zeigt die Legende evtl. die Kerze unter der Maus.
+        guard.move_to(*cfg["naechste_kerze"], "Maus aus dem Chart (Start)")
     threading.Thread(target=reader.run, args=(stop,), daemon=True).start()
     win.after(100, pump)
     win.mainloop()

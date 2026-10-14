@@ -53,16 +53,20 @@ def changed(a, b, threshold: float = 0.15) -> bool:
 
 
 def anchor_pair(steps: list[dict], chart) -> tuple[int | None, int | None]:
-    """(Index Klick, der die Box anlegt; Index Doppelklick, der sie öffnet)."""
+    """(Index Klick, der die Box anlegt; Index Doppelklick, der sie öffnet).
+
+    Bevorzugt: der erste Doppelklick im Chart vor dem ersten Tipp-Feld, und als Anlege-Klick
+    der LETZTE einfache Chart-Klick davor (ein Fokus-Klick ganz am Anfang zählt so nicht)."""
     if not chart:
         return None, None
     first_type = next((i for i, s in enumerate(steps) if s.get("tippe")), len(steps))
-    create = next((i for i in range(first_type)
-                   if in_rect(*steps[i]["punkt"], chart) and not steps[i].get("doppel")), None)
-    if create is None:
-        return None, None
-    dbl = next((j for j in range(create + 1, first_type) if steps[j].get("doppel")), None)
-    return create, dbl
+    in_chart = [i for i in range(first_type) if in_rect(*steps[i]["punkt"], chart)]
+    dbl = next((i for i in in_chart if steps[i].get("doppel")), None)
+    if dbl is not None:
+        before = [i for i in in_chart if i < dbl and not steps[i].get("doppel")]
+        return (before[-1] if before else None), dbl
+    singles = [i for i in in_chart if not steps[i].get("doppel")]
+    return (singles[0] if singles else None), None
 
 
 def _rect_around(x: int, y: int, half) -> list[int]:
@@ -116,24 +120,40 @@ class Drawer:
         return bool((self.cfg.get("ablaeufe") or {}).get(direction))
 
     # ------------------------------------------------------------ Kontrollen
-    def _wait_for_dialog(self, rect, before) -> bool:
-        deadline = self.clock() + float(self.cfg.get("dialog_wartezeit", 3.0))
+    def _wait_for_change(self, rect, before, seconds: float) -> bool:
+        deadline = self.clock() + seconds
         while True:
             if changed(before, self.snap(rect)):
-                self.sleep(0.4)             # Dialog fertig aufbauen lassen
                 return True
             if self.clock() >= deadline:
                 return False
             self.sleep(0.2)
 
+    def _wait_for_dialog(self, rect, before, field) -> bool:
+        """Dialog gilt erst als offen, wenn sich das Bild verändert hat UND im Einstiegs-
+        preis-Feld eine Zahl steht (sonst wäre es z.B. nur eine Werkzeugleiste)."""
+        wait = float(self.cfg.get("dialog_wartezeit", 3.0))
+        if not self._wait_for_change(rect, before, wait):
+            return False
+        deadline = self.clock() + wait
+        while True:
+            self.sleep(0.4)                 # Dialog fertig aufbauen lassen
+            if self.field_reader is None or self._field_numbers(*field):
+                return True
+            if self.clock() >= deadline:
+                return False
+
+    def _field_numbers(self, x: int, y: int) -> list[float]:
+        try:
+            return numbers_in(self.field_reader(self.snap(_rect_around(x, y, FIELD))))
+        except Exception:
+            return []
+
     def _field_ok(self, x: int, y: int, value: float) -> bool | None:
         """True = richtige Zahl im Feld, False = falsche Zahl, None = nicht lesbar."""
         if self.snap is None or self.field_reader is None:
             return None
-        try:
-            nums = numbers_in(self.field_reader(self.snap(_rect_around(x, y, FIELD))))
-        except Exception:
-            return None
+        nums = self._field_numbers(x, y)
         if not nums:
             return None
         return any(abs(n - value) < 0.01 for n in nums)
@@ -188,12 +208,15 @@ class Drawer:
 
         # Aufräumen: ein offener Dialog von vorher würde die Kontrolle täuschen
         self._close_dialogs("offene Dialoge schließen (Start)")
+        dialog_open = False
+        last = len(steps) - 1
         for i, st in enumerate(steps):
             x, y = st["punkt"]
             double = bool(st.get("doppel"))
             opens_dialog = dialog_rect is not None and i == first_type - 1
-            if opens_dialog:
-                before = self.snap(dialog_rect)          # Bild VOR dem Öffnen des Dialogs
+            closes_dialog = dialog_open and i == last and not st.get("tippe")
+            if opens_dialog or closes_dialog:
+                before = self.snap(dialog_rect)          # Bild VOR dem Öffnen/Schließen
 
             if i == create:
                 self.guard.click_in("chart", ax, ay, f"{side}: Box an aktueller Kerze anlegen")
@@ -205,9 +228,16 @@ class Drawer:
 
             if opens_dialog:
                 self.post("Prüfe, ob der Einstellungsdialog offen ist ...")
-                if not self._wait_for_dialog(dialog_rect, before):
+                if not self._wait_for_dialog(dialog_rect, before, steps[first_type]["punkt"]):
                     self._abort("Einstellungsdialog ist nicht aufgegangen - Box wurde nicht "
                                 "getroffen. Nichts getippt.")
+                dialog_open = True
+
+            if closes_dialog:
+                self.post("Prüfe, ob der Dialog zu ist ...")
+                if not self._wait_for_change(dialog_rect, before, 3.0):
+                    self._abort("OK wurde nicht getroffen - Dialog ist noch offen. "
+                                "Box evtl. ohne die richtigen Werte.")
 
             if st.get("tippe"):
                 text = format_price(values[st["tippe"]], dec)
