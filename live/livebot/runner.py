@@ -265,3 +265,91 @@ def run_draw_test(direction: str, out_dir: str, cfg_path: str = "config.json") -
         return 1
     print("Fertig.")
     return 0
+
+
+SEQUENZEN = {
+    "kaufen": ["kaufen"], "verkaufen": ["verkaufen"], "breakeven": ["breakeven"],
+    "schliessen": ["schliessen"],
+    "alle": ["kaufen", "breakeven", "schliessen", "verkaufen", "breakeven", "schliessen"],
+}
+
+
+def run_sequence(actions, price: float, steps: list[str], *, say=print, sleep=time.sleep,
+                 pause: float = 4.0) -> bool:
+    """Spielt die Schritte nacheinander ab. Beispielwerte um den aktuellen Kurs:
+    Long: SL -50 / TP +50, Break-even-SL -20; Short spiegelbildlich. Bricht beim ersten
+    Fehler ab (dann ist unklar, was offen ist)."""
+    side = None
+    for i, name in enumerate(steps, 1):
+        say(f"[{i}/{len(steps)}] {name} ...")
+        try:
+            if name == "kaufen":
+                side = "long"
+                actions.market("long", price - 50, price + 50)
+            elif name == "verkaufen":
+                side = "short"
+                actions.market("short", price + 50, price - 50)
+            elif name == "breakeven":
+                actions.breakeven(price - 20 if side != "short" else price + 20)
+            elif name == "schliessen":
+                actions.close()
+        except Exception as exc:
+            say(f"FEHLER bei '{name}': {exc}")
+            say("Abgebrochen. Prüfe in TradingView, was offen ist.")
+            return False
+        say(f"    '{name}' ausgeführt. Schau im Chart, ob es geklappt hat.")
+        if i < len(steps):
+            sleep(pause)
+    return True
+
+
+def run_action_test(action: str, out_dir: str, cfg_path: str = "config.json",
+                    confirm=input) -> int:
+    """Kaufen/Verkaufen/Break-even/Schließen einzeln oder nacheinander im PAPER-Konto testen."""
+    from . import ocr
+    from .account import PaperLock
+    from .draw import Drawer
+    from .orders import LiveActions
+    from .safety import Guard
+
+    cfg = config.load(cfg_path)
+    steps = SEQUENZEN[action]
+    missing = [s for s in dict.fromkeys(steps)
+               if not (cfg.get("ablaeufe") or {}).get(s)]
+    for k in ("legende", "konto", "parkplatz"):
+        if not cfg.get(k):
+            missing.append(f"Kalibrierung '{k}'")
+    if missing:
+        print("Es fehlt noch: " + ", ".join(missing) + "\nErst kalibrieren/aufnehmen (siehe README).")
+        return 1
+    ocr.setup_tesseract(cfg.get("tesseract"))
+    journal = Journal(out_dir)
+    stop = threading.Event()
+    guard = Guard(cfg, journal, stop_event=stop)
+    install_f12(journal)
+    guard.move_to(*cfg["parkplatz"], "Maus parken")
+    time.sleep(0.5)
+    vals, text = ocr.read_ohlc(ocr.grab(cfg["legende"]))
+    if vals is None:
+        print(f"Legende nicht lesbar ({text!r}) - Kurs unbekannt.")
+        return 1
+    price = vals[3]
+    paper = PaperLock(cfg, journal)
+    try:
+        paper.check("Aktions-Test")
+    except Exception as exc:
+        print(f"STOPP: {exc}")
+        return 1
+    print(f"Paper-Konto erkannt. Kurs ca. {price:.2f}, Menge {int(cfg.get('menge', 1))}.")
+    print("Ablauf: " + " -> ".join(steps))
+    print("Das sind ECHTE Klicks im Paper-Konto (Ein-Klick-Handel muss AUS sein).")
+    if confirm("Zum Starten JA tippen: ").strip().lower() != "ja":
+        print("Abgebrochen.")
+        return 0
+    print("Los in 5 Sekunden - Maus nicht anfassen. F12 = Abbruch.")
+    time.sleep(5)
+    actions = LiveActions(cfg, Drawer(cfg, guard, post=lambda t: print(f"    {t}")), paper)
+    ok = run_sequence(actions, price, steps)
+    journal.log_action(f"Aktions-Test {action}: {'OK' if ok else 'FEHLER'}")
+    print("Fertig." if ok else "Mit Fehler beendet.")
+    return 0 if ok else 1

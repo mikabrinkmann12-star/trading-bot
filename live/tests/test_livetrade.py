@@ -247,3 +247,28 @@ def test_paper_sperre_meldet_nichts_geklickt():
         tick(m, T(10, 0, s), 101, 102, 99.5, 100)
     assert m.result == NO_PAPER and "NICHTS geklickt" in m.reason
     assert m.row("x")["Füllzeit"] == "" and len(acts.calls) == 1
+
+
+def test_aktions_test_sequenz(tmp_path):
+    from livebot.runner import SEQUENZEN, run_sequence
+    dr = FakeDrawer()
+    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Paper Trading")
+    acts = LiveActions({"menge": 1}, dr, lock)
+    out = []
+    assert run_sequence(acts, 30000.0, SEQUENZEN["alle"], say=out.append, sleep=lambda s: None)
+    assert [p[0] for p in dr.played] == ["kaufen", "breakeven", "schliessen",
+                                         "verkaufen", "breakeven", "schliessen"]
+    assert dr.played[0][1] == {"menge": 1, "stop": 29950.0, "ziel": 30050.0}
+    assert dr.played[1][1] == {"entry": 29980.0}          # Long: SL unter dem Kurs
+    assert dr.played[3][1] == {"menge": 1, "stop": 30050.0, "ziel": 29950.0}
+    assert dr.played[4][1] == {"entry": 30020.0}          # Short: SL über dem Kurs
+
+
+def test_aktions_test_bricht_bei_fehler_ab(tmp_path):
+    from livebot.runner import run_sequence
+    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Echtgeld")
+    acts = LiveActions({"menge": 1}, FakeDrawer(), lock)
+    out = []
+    assert not run_sequence(acts, 30000.0, ["kaufen", "schliessen"], say=out.append,
+                            sleep=lambda s: None)
+    assert any("Kein Paper-Konto" in o for o in out) and not any("'schliessen' ausgeführt" in o for o in out)

@@ -50,6 +50,12 @@ Der Bot beobachtet den **Live-Chart**, rechnet die Strategie und handelt **selbs
    Am Ende jeweils **F9** zum Speichern, **F10** zum Abbrechen. Beim Vormachen von kaufen/verkaufen darfst du im Paper-Konto wirklich kaufen. Schließ die Position danach selbst.
 
 ## Benutzen
+**Order-Abläufe einmal testen (Paper-Konto, echte Klicks):**
+```
+python live.py --aktion-test alle
+```
+Er macht nacheinander: kaufen → Break-even → schließen → verkaufen → Break-even → schließen, mit etwa 4 s Pause dazwischen. Vorher fragt er nach „JA“ und prüft das Paper-Konto. Einzeln geht auch: `--aktion-test kaufen` (oder `verkaufen`, `breakeven`, `schliessen`). Beispielwerte: TP/SL jeweils 50 Punkte vom aktuellen Kurs, Break-even-SL 20 Punkte darunter (Long) bzw. darüber (Short).
+
 **Erst testen, ohne zu handeln:**
 ```
 python live.py --ohne-orders

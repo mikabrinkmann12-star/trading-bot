@@ -4,6 +4,7 @@
   python live.py --aufnehmen kaufen            # vormachen: kaufen, verkaufen, breakeven,
                                                #            schliessen, long, short
   python live.py --zeichnen-test long          # Einzeichnen einzeln testen
+  python live.py --aktion-test alle            # kaufen, break-even, schliessen, verkaufen, ... einmal
   python live.py --ohne-orders                 # beobachten + einzeichnen, OHNE zu kaufen
   python live.py                               # richtig laufen lassen (Paper-Konto)
   python live.py --auswertung                  # Statistik aus trades.csv
@@ -42,6 +43,8 @@ def main(argv=None) -> int:
     p.add_argument("--aufnehmen", choices=ABLAEUFE, help="einen Ablauf einmal vormachen")
     p.add_argument("--zeichnen-test", choices=["long", "short"],
                    help="eine Beispiel-Box einzeichnen (ohne Handel)")
+    p.add_argument("--aktion-test", choices=["kaufen", "verkaufen", "breakeven", "schliessen", "alle"],
+                   help="Order-Abläufe im Paper-Konto einmal testen (echte Klicks!)")
     p.add_argument("--ohne-orders", action="store_true",
                    help="nur beobachten, rechnen, einzeichnen - nichts kaufen/verkaufen")
     p.add_argument("--auswertung", action="store_true", help="Statistik aus trades.csv")
@@ -66,6 +69,9 @@ def main(argv=None) -> int:
     if args.zeichnen_test:
         from livebot.runner import run_draw_test
         return run_draw_test(args.zeichnen_test, args.ausgabe, args.config)
+    if args.aktion_test:
+        from livebot.runner import run_action_test
+        return run_action_test(args.aktion_test, args.ausgabe, args.config)
     from livebot.runner import run_live
     if args.sim_start:
         from livebot.nyclock import SimClock
