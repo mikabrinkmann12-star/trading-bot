@@ -156,6 +156,7 @@ Der Bericht wird zusätzlich in `auswertung.txt` gespeichert. Unter 20 Trades ko
 | Meldung | Lösung |
 |---|---|
 | `Noch nicht kalibriert` | Zuerst `python bot.py --kalibrieren` |
+| `trades.csv ist gesperrt (in Excel offen?)` | Kein Problem: Das Ergebnis steht vorerst in `trades_nachtragen.csv` und wird beim nächsten Mal automatisch übernommen. Excel einfach schließen. |
 | `Legende nicht lesbar` / `Test-OCR fehlgeschlagen` | Neu kalibrieren, das Rechteck enger um die Legende ziehen. Ist Tesseract installiert? |
 | `tesseract is not installed` | Tesseract installieren. Liegt es nicht in `C:\Program Files\Tesseract-OCR`, den Pfad in `config.json` bei `"tesseract"` eintragen. |
 | `Maus aus dem Chart nehmen` | Maus auf die Replay-Leiste oder neben den Chart bewegen |
