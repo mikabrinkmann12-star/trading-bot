@@ -1,8 +1,9 @@
-"""TradingView-Replay-Trainingsbot - NUR Replay/Paper, kein echtes Geld, kein Broker.
+"""TradingView-Replay-Bot - NUR Replay/Paper, kein echtes Geld, kein Broker.
 
-Phase 1 (CSV-Testmodus):
-  python bot.py --csv tests/data/2026-09-25.csv                 # Prüfmodus (Standard)
-  python bot.py --csv tests/data/2026-09-25.csv --ohne-pruefen  # nur durchrechnen
+  python bot.py --csv tests/data/2026-09-25.csv            # Tag aus CSV durchrechnen
+  python bot.py --csv tests/data/2026-09-25.csv --pruefen  # optional: Prüfmodus
+  python bot.py --kalibrieren                              # einmalig: Legende/Buttons markieren
+  python bot.py --live --datum 2026-09-25                  # Bildschirm mitlesen
 """
 from __future__ import annotations
 
@@ -32,7 +33,7 @@ def run_csv(args) -> int:
     engine = StrategyEngine(date=date)
     journal = Journal(args.ausgabe)
     quiz = None
-    if not args.ohne_pruefen:
+    if args.pruefen:
         quiz = Quiz(ask=lambda q: input(f"  ? {q} "), say=lambda t: print(f"    {t}"),
                     journal=journal, date=date)
         print("Prüfmodus: Nach jeder Kerze beantwortest du die Fragen zum aktuellen Schritt.")
@@ -79,16 +80,32 @@ def main(argv=None) -> int:
         description="TradingView-Replay-Trainingsbot (nur Replay/Paper).")
     p.add_argument("--csv", help="Kerzen aus CSV lesen (Zeit,O,H,L,C) - Testmodus")
     p.add_argument("--datum", help="Datum des Replay-Tages, z.B. 2026-09-25")
-    p.add_argument("--ohne-pruefen", action="store_true",
-                   help="Prüfmodus aus: nur rechnen und anzeigen")
+    p.add_argument("--pruefen", action="store_true",
+                   help="Prüfmodus an: vor jedem Schritt deine Antwort abfragen (nur --csv)")
+    p.add_argument("--kalibrieren", action="store_true",
+                   help="Legende, Chart-Bereich und 'Nächste Kerze' markieren -> config.json")
+    p.add_argument("--live", action="store_true",
+                   help="Legende vom Bildschirm lesen (du klickst 'Nächste Kerze')")
+    p.add_argument("--start", default="09:00",
+                   help="Uhrzeit der Kerze, auf der das Replay beim Start steht (Standard 09:00)")
+    p.add_argument("--config", default="config.json", help="Pfad zur config.json")
     p.add_argument("--ausgabe", default=".",
                    help="Ordner für trades.csv und logs/ (Standard: aktueller Ordner)")
     args = p.parse_args(argv)
 
     if args.csv:
         return run_csv(args)
+    if args.kalibrieren or args.live:
+        from replaybot import winutil
+        winutil.set_dpi_aware()
+    if args.kalibrieren:
+        from replaybot import calibrate
+        return 0 if calibrate.run(args.config) else 1
+    if args.live:
+        from replaybot.live import run_live
+        date = args.datum or input("Datum des Replay-Tages (z.B. 2026-09-25): ").strip()
+        return run_live(date, args.start, args.ausgabe, args.config)
     p.print_help()
-    print("\nPhase 1: nur --csv ist verfügbar. Live-Modus (Bildschirm/OCR) kommt in Phase 2.")
     return 1
 
 
