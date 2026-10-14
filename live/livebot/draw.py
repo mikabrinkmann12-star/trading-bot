@@ -172,6 +172,11 @@ class Drawer:
         wait = float(self.cfg.get("dialog_wartezeit", 3.0))
         level, ratio, after = self._watch(rect, before, wait)
         self.log(f"Dialog-Prüfung: Veränderung {ratio * 100:.1f} % -> {level}")
+        if level == "keins" and self.field_reader is not None and self._read_field(*field)[0]:
+            # Keine Veränderung, aber im ersten Feld steht eine Zahl: das Fenster war schon
+            # offen (z.B. das Bestellfenster bleibt nach einer Order offen).
+            self.log("Fenster war schon offen (Feld lesbar) - weiter mit Kontrolle nach dem Tippen")
+            return "offen"
         if level == "keins":
             self._diag("dialog_vorher", before, "(Bild vor dem Doppelklick)")
             self._diag("dialog_nachher", after, f"(Bild danach, Veränderung {ratio * 100:.1f} %)")
@@ -223,6 +228,18 @@ class Drawer:
             self._diag(f"falsch_{value:.2f}", img, text)
         return ok
 
+    @staticmethod
+    def _toggle_before(steps, i, first_type, create, dbl):
+        """Der Klick direkt vor einem Tipp-Feld, falls er ein einfacher Klick ist (z.B. der
+        Schalter 'Take Profit an') - nicht der Klick, der das Fenster öffnet, kein Box-Klick."""
+        j = i - 1
+        if j < 0 or j == first_type - 1 or j in (create, dbl):
+            return None
+        st = steps[j]
+        if st.get("tippe") or st.get("doppel"):
+            return None
+        return j
+
     def _leave_field(self):
         """Tab: Feld verlassen -> TradingView übernimmt den Wert, und der blinkende Cursor
         stört das Nachlesen nicht (sonst wird aus '0|' gern eine '9')."""
@@ -254,8 +271,17 @@ class Drawer:
         self.play(direction, {"entry": entry, "stop": stop, "ziel": target}, anchor=anchor)
 
     def play(self, name: str, values: dict, anchor=None, final_esc: bool = True,
-             pause: float | None = None, decimal: str | None = None):
-        """Einen aufgenommenen Ablauf abspielen (Einzeichnen, Kaufen, Break-even, ...)."""
+             pause: float | None = None, decimal: str | None = None,
+             close_check: str = "fatal", strict: tuple = (), confirm_pause: float = 0.0):
+        """Einen aufgenommenen Ablauf abspielen (Einzeichnen, Kaufen, Break-even, ...).
+
+        close_check: Prüfung nach dem letzten Klick, ob das Fenster zu ist -
+                     'fatal' (Box-Dialog), 'warn' (nur Hinweis) oder 'off' (Bestellfenster
+                     bleibt in TradingView offen, da gibt es nichts zu prüfen).
+        strict:      Felder, deren Zahl nach dem Tippen sicher lesbar UND richtig sein muss
+                     (z.B. TP/SL bei Orders). Sonst Abbruch VOR dem Bestätigen.
+        confirm_pause: Wartezeit nach dem Bestätigen-Klick (= erster Klick nach dem letzten
+                     Tipp-Feld), bevor der nächste Klick kommt (z.B. das X zum Schließen)."""
         steps = (self.cfg.get("ablaeufe") or {}).get(name)
         if not steps:
             raise SafetyError(f"Kein Ablauf '{name}' aufgenommen "
@@ -283,11 +309,15 @@ class Drawer:
         dialog_level = "stark"
         first_typed = True
         last = len(steps) - 1
+        last_type = max((i for i, s in enumerate(steps) if s.get("tippe")), default=None)
+        confirm_step = (last_type + 1 if last_type is not None and last_type + 1 <= last
+                        else None)
         for i, st in enumerate(steps):
             x, y = st["punkt"]
             double = bool(st.get("doppel"))
             opens_dialog = dialog_rect is not None and i == first_type - 1
-            closes_dialog = dialog_open and i == last and not st.get("tippe")
+            closes_dialog = (dialog_open and i == last and not st.get("tippe")
+                             and close_check != "off")
             if opens_dialog or closes_dialog:
                 before = self.snap(dialog_rect)          # Bild VOR dem Öffnen/Schließen
 
@@ -298,51 +328,76 @@ class Drawer:
                                     double=True)
             else:
                 self.guard.click(x, y, f"{side} Schritt {i + 1}", double=double)
+            if i == confirm_step and confirm_pause > 0 and i < last:
+                self.post(f"Bestätigt - warte {confirm_pause:.1f} s ...")
+                self.sleep(confirm_pause)
 
             if opens_dialog:
-                self.post("Prüfe, ob der Einstellungsdialog offen ist ...")
+                self.post("Prüfe, ob das Fenster offen ist ...")
                 dialog_level = self._wait_for_dialog(dialog_rect, before,
                                                      steps[first_type]["punkt"])
                 if dialog_level == "keins":
-                    self._abort("Einstellungsdialog ist nicht aufgegangen - Box wurde nicht "
-                                "getroffen. Nichts getippt. (Bilder: logs\\ocr_zeichnen_dialog_*.png)")
+                    self._abort("Fenster ist nicht aufgegangen (Box/Knopf nicht getroffen). "
+                                "Nichts getippt. (Bilder: logs\\ocr_zeichnen_dialog_*.png)")
                 dialog_open = True
                 first_typed = False
 
             if closes_dialog:
-                self.post("Prüfe, ob der Dialog zu ist ...")
+                self.post("Prüfe, ob das Fenster zu ist ...")
                 if not self._wait_for_change(dialog_rect, before, 3.0):
-                    self._abort("OK wurde nicht getroffen - Dialog ist noch offen. "
-                                "Box evtl. ohne die richtigen Werte.")
+                    msg = "OK wurde evtl. nicht getroffen - Fenster ist noch offen."
+                    if close_check == "fatal":
+                        self._abort(msg + " Box evtl. ohne die richtigen Werte.")
+                    self.post(msg + " Bitte kurz in TradingView prüfen.")
+                    self.log(msg)
 
             if st.get("tippe"):
-                if st["tippe"] not in values:
-                    self._abort(f"Für das Feld '{st['tippe']}' gibt es in '{name}' keinen Wert.")
-                if st["tippe"] == "menge":
+                key = st["tippe"]
+                if key not in values:
+                    self._abort(f"Für das Feld '{key}' gibt es in '{name}' keinen Wert.")
+                if key == "menge":
                     text = str(int(values["menge"]))
                     value = float(text)
                 else:
-                    text = format_price(values[st["tippe"]], dec)
+                    text = format_price(values[key], dec)
                     value = float(text.replace(",", "."))   # gerundeter Wert = was im Feld steht
                 self.sleep(0.3)
-                self.guard.type_text(text, st["tippe"])
+                self.guard.type_text(text, key)
                 self._leave_field()
                 ok = self._field_ok(x, y, value)
-                if dialog_level == "schwach" and not first_typed and ok is not True:
-                    self._abort("Dialog nur schwach erkannt und die Zahl steht nicht im Feld - "
+                # 'schwach': kaum Bildänderung -> die erste Zahl MUSS danach im Feld stehen.
+                # 'offen': Fenster stand schon offen (Feld war lesbar) -> nur falsche Zahl zählt.
+                if (not first_typed and ok is not True
+                        and (dialog_level == "schwach"
+                             or (dialog_level == "offen" and ok is False))):
+                    self._abort("Fenster nur schwach erkannt und die Zahl steht nicht im Feld - "
                                 "vermutlich nichts geöffnet. Abgebrochen.")
                 first_typed = True
-                if ok is False:
-                    self.post(f"{st['tippe']}: falsche Zahl im Feld - tippe nochmal ...")
+                toggle = self._toggle_before(steps, i, first_type, create, dbl)
+                tries = 0
+                while ok is not True and tries < 2:
+                    tries += 1
+                    if ok is None and key not in strict:
+                        self.post(f"{key}: Feld nicht lesbar - kann es nicht prüfen.")
+                        break
+                    if tries == 1 and toggle is not None and ok is False:
+                        # Typischer Fall: Schalter (z.B. Take Profit) war schon AN und wurde
+                        # durch den aufgenommenen Klick AUSgeschaltet -> Feld gesperrt.
+                        tx, ty = steps[toggle]["punkt"]
+                        self.post(f"{key}: Zahl nicht übernommen - schalte den Schalter davor "
+                                  f"nochmal um und tippe neu ...")
+                        self.guard.click(tx, ty, f"{side} Schritt {toggle + 1} (Schalter nochmal)")
+                        self.sleep(0.4)
+                    else:
+                        self.post(f"{key}: Zahl stimmt nicht/unlesbar - tippe nochmal ...")
                     self.guard.click(x, y, f"{side} Schritt {i + 1} (nochmal)")
                     self.sleep(0.3)
-                    self.guard.type_text(text, st["tippe"] + " (nochmal)")
+                    self.guard.type_text(text, key + " (nochmal)")
                     self._leave_field()
-                    if self._field_ok(x, y, value) is False:
-                        self._abort(f"Im Feld '{st['tippe']}' steht nach 2 Versuchen nicht "
-                                    f"{text} - abgebrochen.")
-                elif ok is None:
-                    self.post(f"{st['tippe']}: Feld nicht lesbar - kann es nicht prüfen.")
+                    ok = self._field_ok(x, y, value)
+                if ok is False or (ok is None and key in strict):
+                    self._abort(f"Im Feld '{key}' steht nicht sicher {text} - abgebrochen, "
+                                f"es wurde NICHT bestätigt.")
             self.sleep(pause)
 
         if final_esc:

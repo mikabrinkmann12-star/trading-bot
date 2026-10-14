@@ -155,7 +155,7 @@ def test_falsche_zahl_wird_nochmal_getippt():
 
 def test_zweimal_falsch_bricht_ab():
     dr, g = make_drawer(field_text=lambda n: "12345")
-    with pytest.raises(SafetyError, match="nach 2 Versuchen"):
+    with pytest.raises(SafetyError, match="nicht sicher"):
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
     assert g.calls[-1] == ("press", "esc")
 
@@ -193,7 +193,7 @@ def test_esc_ohne_tradingview_vorne_wird_uebersprungen():
 
 def test_ok_nicht_getroffen_wird_erkannt():
     dr, g = make_drawer(ok_closes=False)
-    with pytest.raises(SafetyError, match="OK wurde nicht getroffen"):
+    with pytest.raises(SafetyError, match="OK wurde evtl. nicht getroffen"):
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
 
 
@@ -284,7 +284,7 @@ def test_schwach_erkannt_aber_zahl_nicht_im_feld_bricht_ab():
 
 def test_gar_keine_veraenderung_speichert_diagnosebilder():
     saved = []
-    dr, g = make_white(0.0)
+    dr, g = make_white(0.0, dialog_opens=False)
     dr.save_img = lambda img, tag: saved.append(tag) or tag
     with pytest.raises(SafetyError, match="nicht aufgegangen"):
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
@@ -317,3 +317,116 @@ def test_feld_mit_ticks_daneben_gilt_als_richtig():
                                               "30763.50 245"][n - 1])
     dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
     assert len([c for c in g.calls if c[0] == "type"]) == 3       # kein Nachtippen nötig
+
+
+def order_drawer(field_text=None, toggle_on_before=False):
+    """Bestellfenster: Kauf-Knopf (100,100) öffnet, Menge (900,300), TP-Schalter (950,350),
+    TP-Feld (900,400), SL-Schalter (950,450), SL-Feld (900,500), Bestätigen (1000,700),
+    X (1100,100). Schalter: aufgenommen als 'aus -> an'."""
+    steps = [{"punkt": [100, 100], "doppel": False, "tippe": None},
+             {"punkt": [900, 300], "doppel": False, "tippe": "menge"},
+             {"punkt": [950, 350], "doppel": False, "tippe": None},
+             {"punkt": [900, 400], "doppel": False, "tippe": "ziel"},
+             {"punkt": [950, 450], "doppel": False, "tippe": None},
+             {"punkt": [900, 500], "doppel": False, "tippe": "stop"},
+             {"punkt": [1000, 700], "doppel": False, "tippe": None},
+             {"punkt": [1100, 100], "doppel": False, "tippe": None}]
+    cfg = {"ablaeufe": {"kaufen": steps}, "chart": CHART_RECT}
+    g = FakeGuardIn()
+    state = {"tp": toggle_on_before, "sl": toggle_on_before, "fields": {}, "focus": None,
+             "open": False}
+    slept = []
+
+    def click(x, y, what, double=False):
+        g.calls.append(("click", x, y))
+        if (x, y) == (100, 100):
+            state["open"] = True
+        elif (x, y) == (950, 350):
+            state["tp"] = not state["tp"]
+        elif (x, y) == (950, 450):
+            state["sl"] = not state["sl"]
+        elif (x, y) == (1100, 100):
+            state["open"] = False
+        state["focus"] = (x, y)
+
+    def type_text(text, what):
+        g.calls.append(("type", what, text))
+        f = state["focus"]
+        if f == (900, 400) and not state["tp"] or f == (900, 500) and not state["sl"]:
+            return                                    # Feld gesperrt (Schalter aus)
+        state["fields"][f] = text
+
+    g.click = click
+    g.type_text = type_text
+    np = pytest.importorskip("numpy")
+
+    def snap(rect):
+        return np.full((rect[3], rect[2], 3), 200 if state["open"] else 30, dtype=np.uint8)
+
+    def read(img):
+        f = state["focus"]
+        return state["fields"].get(f, "1" if f == (900, 300) else "28000.00")
+
+    t = [0.0]
+
+    def sleep(s):
+        slept.append(s)
+        t[0] += s
+    dr = Drawer(cfg, g, sleep=sleep, snap=snap, field_reader=field_text or read,
+                clock=lambda: t[0])
+    dr.save_img = lambda img, tag: tag
+    return dr, g, state, slept
+
+
+def test_order_wartet_nach_bestaetigen_vor_dem_x():
+    dr, g, state, slept = order_drawer()
+    dr.play("kaufen", {"menge": 1, "ziel": 30189.25, "stop": 30089.25}, final_esc=False,
+            decimal=".", close_check="off", strict=("ziel", "stop"), confirm_pause=2.5)
+    clicks = [c for c in g.calls if c[0] == "click"]
+    i_ok = clicks.index(("click", 1000, 700))
+    assert clicks[i_ok + 1] == ("click", 1100, 100)          # danach das X
+    assert 2.5 in slept
+    assert state["fields"][(900, 400)] == "30189.25" and state["fields"][(900, 500)] == "30089.25"
+
+
+def test_schalter_schon_an_wird_wieder_eingeschaltet():
+    """TP/SL waren von der letzten Order noch AN -> aufgenommener Klick schaltet sie AUS ->
+    Bot merkt, dass die Zahl nicht übernommen wurde, schaltet wieder an und tippt neu."""
+    dr, g, state, slept = order_drawer(toggle_on_before=True)
+    dr.play("kaufen", {"menge": 1, "ziel": 30189.25, "stop": 30089.25}, final_esc=False,
+            decimal=".", close_check="off", strict=("ziel", "stop"), confirm_pause=2.5)
+    assert state["tp"] and state["sl"]
+    assert state["fields"][(900, 400)] == "30189.25" and state["fields"][(900, 500)] == "30089.25"
+    assert ("click", 1000, 700) in g.calls                   # erst dann bestätigt
+
+
+def test_tp_unlesbar_wird_nicht_bestaetigt():
+    dr, g, state, slept = order_drawer(field_text=lambda img: "")
+    with pytest.raises(SafetyError, match="NICHT bestätigt"):
+        dr.play("kaufen", {"menge": 1, "ziel": 30189.25, "stop": 30089.25}, final_esc=False,
+                decimal=".", close_check="off", strict=("ziel", "stop"), confirm_pause=2.5)
+    assert ("click", 1000, 700) not in g.calls               # KEINE Order ohne sicheres TP
+
+
+def test_bestellfenster_schon_offen_geht_trotzdem():
+    dr, g, state, slept = order_drawer()
+    state["open"] = True                                      # Fenster steht schon offen
+    dr.play("kaufen", {"menge": 1, "ziel": 30189.25, "stop": 30089.25}, final_esc=False,
+            decimal=".", close_check="off", strict=("ziel", "stop"), confirm_pause=2.5)
+    assert ("click", 1000, 700) in g.calls
+
+
+def test_offenes_bestellfenster_menge_unlesbar_geht_weiter():
+    """Bestellfenster stand schon offen; die '1' in Menge ist (wie beim Nutzer) nicht lesbar
+    -> trotzdem weiter, TP/SL werden streng geprüft."""
+    dr, g, state, slept = order_drawer()
+    state["open"] = True
+    base_read = dr.field_reader
+
+    def read(img):
+        return "" if state["focus"] == (900, 300) and any(
+            c[0] == "type" for c in g.calls) else base_read(img)
+    dr.field_reader = read
+    dr.play("kaufen", {"menge": 1, "ziel": 30189.25, "stop": 30089.25}, final_esc=False,
+            decimal=".", close_check="off", strict=("ziel", "stop"), confirm_pause=2.5)
+    assert ("click", 1000, 700) in g.calls

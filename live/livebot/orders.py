@@ -29,6 +29,10 @@ class LiveActions:
     def _order_pause(self) -> float:
         return float(self.cfg.get("order_pause", 0.3))
 
+    def _confirm_pause(self) -> float:
+        """Nach dem Bestätigen kurz warten, bevor z.B. das X geklickt wird."""
+        return float(self.cfg.get("bestaetigen_pause", 2.5))
+
     def _dec(self) -> str:
         """Das Bestellfenster nimmt nur den PUNKT (ein Komma wird verschluckt -> 100x zu groß)."""
         return self.cfg.get("dezimal_order", ".")
@@ -40,9 +44,12 @@ class LiveActions:
             return
         self.paper.check(f"Markt {name}")
         values = {"menge": int(self.cfg.get("menge", 1)), "stop": stop, "ziel": target}
+        # Bestellfenster bleibt offen -> keine Schließ-Prüfung; TP und SL MÜSSEN sicher stimmen
         self.around(lambda: self.drawer.play(name, values, final_esc=False,
                                              pause=self._order_pause(),
-                                             decimal=self._dec()))
+                                             decimal=self._dec(), close_check="off",
+                                             strict=("ziel", "stop"),
+                                             confirm_pause=self._confirm_pause()))
 
     def breakeven(self, entry: float):
         if not self.enabled:
@@ -51,7 +58,9 @@ class LiveActions:
         self.paper.check("Break-even")
         self.around(lambda: self.drawer.play("breakeven", {"entry": entry}, final_esc=False,
                                              pause=self._order_pause(),
-                                             decimal=self._dec()))
+                                             decimal=self._dec(), close_check="warn",
+                                             strict=("entry",),
+                                             confirm_pause=self._confirm_pause()))
 
     def close(self):
         if not self.enabled:
@@ -60,7 +69,7 @@ class LiveActions:
         self.paper.check("Position schließen")
         self.around(lambda: self.drawer.play("schliessen", {}, final_esc=False,
                                              pause=self._order_pause(),
-                                             decimal=self._dec()))
+                                             decimal=self._dec(), close_check="off"))
 
     def draw(self, direction: str, entry: float, stop: float, target: float):
         if self.painter is None or not (self.cfg.get("ablaeufe") or {}).get(direction):

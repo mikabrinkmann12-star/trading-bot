@@ -193,7 +193,7 @@ class FakeDrawer:
     def __init__(self):
         self.played = []
 
-    def play(self, name, values, final_esc=True, pause=None, decimal=None):
+    def play(self, name, values, final_esc=True, pause=None, decimal=None, **kw):
         self.played.append((name, values))
         self.decimals = getattr(self, "decimals", []) + [decimal]
 
