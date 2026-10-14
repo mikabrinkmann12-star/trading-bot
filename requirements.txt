@@ -1,0 +1,10 @@
+# Phase 1 (Rechenkern + CSV-Test) braucht nur pytest.
+pytest>=7
+
+# Ab Phase 2 (Bildschirm, OCR, Fenster, Klicks):
+mss>=9
+opencv-python>=4.8
+numpy>=1.24
+pytesseract>=0.3.10
+pyautogui>=0.9.54
+keyboard>=0.13.5
