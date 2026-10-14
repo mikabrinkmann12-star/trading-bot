@@ -38,6 +38,7 @@ def test_zeichnet_long_mit_richtigen_werten():
     g = FakeGuard()
     Drawer(cfg, g, sleep=lambda s: None, snap=None).draw("long", 30845.0, 30763.5, 31008.0)
     assert g.calls == [
+        ("press", "esc"), ("press", "esc"),
         ("click", 700, 1010), ("click", 1200, 400), ("dclick", 1200, 400),
         ("click", 900, 300), ("type", "entry", "30845,00"), ("press", "tab"),
         ("click", 900, 400), ("type", "ziel", "31008,00"), ("press", "tab"),
@@ -70,7 +71,7 @@ def test_anker_box_an_kerze_doppelklick_daneben():
     g = FakeGuardIn()
     Drawer(cfg, g, sleep=lambda s: None, snap=None).draw("long", 30845.0, 30763.5, 31008.0,
                                                          anchor=(1333, 555))
-    assert g.calls[:3] == [("click", 700, 1010), ("click_in", "chart", 1333, 555),
+    assert g.calls[2:5] == [("click", 700, 1010), ("click_in", "chart", 1333, 555),
                            ("dclick_in", "chart", 1345, 555)]
     assert ("click", 900, 300) in g.calls and ("click", 1000, 700) in g.calls
 
@@ -79,7 +80,7 @@ def test_anker_ohne_y_behaelt_aufgenommene_hoehe():
     cfg = {"ablaeufe": {"long": full_long().validate()}, "chart": CHART_RECT}
     g = FakeGuardIn()
     Drawer(cfg, g, sleep=lambda s: None, snap=None).draw("long", 1, 0, 3, anchor=(1333, None))
-    assert g.calls[1:3] == [("click_in", "chart", 1333, 400), ("dclick_in", "chart", 1345, 400)]
+    assert g.calls[3:5] == [("click_in", "chart", 1333, 400), ("dclick_in", "chart", 1345, 400)]
 
 
 def test_anchor_pair():
@@ -128,7 +129,7 @@ def test_dialog_geht_nicht_auf_nichts_getippt():
     with pytest.raises(SafetyError, match="nicht aufgegangen"):
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
     assert not any(c[0] == "type" for c in g.calls)
-    assert g.calls[-1] == ("press", "esc")
+    assert g.calls[-2:] == [("press", "esc"), ("press", "esc")]
 
 
 def test_felder_werden_geprueft_alles_richtig():
@@ -167,3 +168,18 @@ def test_krummer_entry_wird_gerundet_und_trotzdem_bestaetigt():
     dr.draw("long", 29419.125, 29369.25, 29518.875, anchor=(1333, 555))
     typed = [c for c in g.calls if c[0] == "type"]
     assert [c[2] for c in typed] == ["29419,25", "29519,00", "29369,25"]
+
+
+def test_esc_ohne_tradingview_vorne_wird_uebersprungen():
+    """--zeichnen-test: am Anfang ist die Konsole vorne -> Aufräum-Esc still auslassen."""
+    from replaybot.safety import SafetyError as SE
+
+    class G(FakeGuardIn):
+        def press(self, key, what):
+            if "Start" in what:
+                raise SE("Konsole vorne")
+            super().press(key, what)
+    cfg = {"ablaeufe": {"long": full_long().validate()}, "chart": CHART_RECT}
+    g = G()
+    Drawer(cfg, g, sleep=lambda s: None, snap=None).draw("long", 1, 0, 3, anchor=(1333, 555))
+    assert g.calls[0] == ("click", 700, 1010)

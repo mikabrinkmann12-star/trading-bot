@@ -145,9 +145,19 @@ class Drawer:
         self.guard.press("tab", "Feld verlassen")
         self.sleep(0.4)
 
+    def _close_dialogs(self, what: str):
+        """Zweimal Esc: das erste verlässt ggf. ein Eingabefeld, das zweite schließt den
+        Dialog. Geht nur, wenn TradingView vorne ist - sonst still überspringen."""
+        for _ in range(2):
+            try:
+                self.guard.press("esc", what)
+            except SafetyError:
+                return
+            self.sleep(0.4)
+
     def _abort(self, why: str):
         try:
-            self.guard.press("esc", "Dialog schließen (Abbruch)")
+            self._close_dialogs("Dialog schließen (Abbruch)")
         finally:
             raise SafetyError(why)
 
@@ -176,6 +186,8 @@ class Drawer:
         if first_type and self.snap is not None:
             dialog_rect = _rect_around(*steps[first_type]["punkt"], PATCH)
 
+        # Aufräumen: ein offener Dialog von vorher würde die Kontrolle täuschen
+        self._close_dialogs("offene Dialoge schließen (Start)")
         for i, st in enumerate(steps):
             x, y = st["punkt"]
             double = bool(st.get("doppel"))
