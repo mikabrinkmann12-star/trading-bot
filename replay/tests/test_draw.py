@@ -290,3 +290,20 @@ def test_gar_keine_veraenderung_speichert_diagnosebilder():
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
     assert saved == ["zeichnen_dialog_vorher", "zeichnen_dialog_nachher"]
     assert not any(c[0] == "type" for c in g.calls)
+
+
+def test_zahl_neben_ticks_und_symbol_wird_getrennt_gelesen():
+    from importlib import import_module
+    mod = import_module("replaybot.draw")
+    assert 30089.25 in mod.numbers_loose("30089.25 245 Ticks")
+    assert 30089.25 in mod.numbers_loose("30089.25 245")
+    assert 30189.25 in mod.numbers_loose("30189.25 ~ 345 Ticks")
+    assert 30915.5 in mod.numbers_loose("Preis 30 915,50 USD")
+    # Verschmelzung bleibt bei numbers_in wie gehabt (nur loose liefert die Einzelteile)
+
+
+def test_feld_mit_ticks_daneben_gilt_als_richtig():
+    dr, g = make_drawer(field_text=lambda n: ["30845.00 11955098 Ticks", "31008.00 245 Ticks",
+                                              "30763.50 245"][n - 1])
+    dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
+    assert len([c for c in g.calls if c[0] == "type"]) == 3       # kein Nachtippen nötig

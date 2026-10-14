@@ -43,6 +43,16 @@ def numbers_in(text: str) -> list[float]:
     return out
 
 
+def numbers_loose(text: str) -> list[float]:
+    """Wie numbers_in, aber zusätzlich jedes durch Leerzeichen getrennte Stück einzeln.
+    Nötig, wenn neben dem Preis noch 'Ticks'-Zahlen oder Symbole im Bild stehen
+    ('30089.25 245 Ticks' darf nicht zu EINER Zahl verschmelzen)."""
+    out = list(numbers_in(text))
+    for part in re.split(r"\s+", text):
+        out += numbers_in(part)
+    return out
+
+
 def change_ratio(a, b) -> float:
     """Anteil der Pixel, die sich deutlich verändert haben (0.0 - 1.0)."""
     import numpy as np
@@ -183,7 +193,7 @@ class Drawer:
         try:
             img = self.snap(_rect_around(x, y, FIELD))
             text = self.field_reader(img)
-            return numbers_in(text), text, img
+            return numbers_loose(text), text, img
         except Exception as exc:
             return [], f"Fehler: {exc!r}", None
 
