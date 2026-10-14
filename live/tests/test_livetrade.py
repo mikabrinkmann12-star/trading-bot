@@ -289,3 +289,35 @@ def test_bestellfenster_bekommt_punkt_als_dezimalzeichen(tmp_path):
     acts2 = LiveActions({"menge": 1, "dezimal_order": ","}, FakeDrawer(), lock)
     acts2.market("long", 90, 120)
     assert acts2.drawer.decimals == [","]
+
+
+def test_ziel_in_den_letzten_sekunden_wird_ueber_abgeschlossene_kerze_erkannt():
+    m, acts = armed_manager()
+    for s in (0, 1):
+        tick(m, T(10, 35, s), 29017, 29017.75, 28960, 28965)
+    assert m.state == IN_TRADE
+    # Ziel wurde nur in der letzten Sekunde der 11:30-Kerze erreicht, keine Lesung sah es
+    m.on_bar_closed(11 * 60 + 30, (29077.0, 29164.5, 29072.0, 29159.25))
+    assert m.result == TARGET and m.r == 2.0
+
+
+def test_entry_in_den_letzten_sekunden_loest_order_aus():
+    m, acts = armed_manager()
+    m.on_bar_closed(10 * 60 + 35, (29017.0, 29017.75, 28959.5, 28970.5))
+    assert [c[0] for c in acts.calls] == ["market", "draw"]
+
+
+def test_entry_in_abgeschlossener_kerze_nach_1100_zaehlt_nicht():
+    m, acts = armed_manager()
+    m.on_bar_closed(11 * 60 + 5, (29017.0, 29017.75, 28900.0, 28970.5))
+    assert acts.calls == []
+
+
+def test_zwoelf_uhr_regel_auch_ohne_frische_lesung():
+    m, acts = armed_manager()
+    for s in (0, 1):
+        tick(m, T(10, 35, s), 29017, 29017.75, 28960, 28965)
+    m.on_time(T(12, 0, 5), 29005.0)          # nur letzter Close bekannt
+    assert acts.calls[-1] == ("breakeven", pytest.approx(28962.25))
+    m.on_time(T(15, 55, 1), 29050.0)
+    assert acts.calls[-1] == ("close",) and m.result == CLOSED_LATE

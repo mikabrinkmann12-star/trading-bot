@@ -62,9 +62,18 @@ class TradeManager:
         return self._confirm[key] >= need
 
     # ------------------------------------------------------------ Kerzen
-    def on_bar_closed(self):
-        """Nach jeder abgeschlossenen Kerze (Engine hat sie schon verarbeitet)."""
+    def on_bar_closed(self, minute: int | None = None, vals: tuple | None = None):
+        """Nach jeder abgeschlossenen Kerze (Engine hat sie schon verarbeitet).
+        minute/vals = die abgeschlossene Kerze (genau gelesen). Damit wird nachgeprüft, ob in
+        den letzten Sekunden der Kerze Entry, Stop oder Ziel berührt wurden, die der Bot
+        zwischen zwei Lesungen verpasst haben könnte."""
         e = self.engine
+        if vals is not None and minute is not None and self.state in (ARMED, IN_TRADE):
+            end = (minute + 5) * 60 - 0.5          # letzte halbe Sekunde dieser Kerze
+            if self.state == ARMED and minute * 60 < FILL_END:
+                self._check_fill(end, vals, need=1)
+            elif self.state == IN_TRADE:
+                self._manage(end, vals, need=1, time_rules=False)
         if self.state != WAIT:
             return
         if e.result in (NO_TRADE, ERROR):
@@ -91,17 +100,20 @@ class TradeManager:
             self._manage(sec, vals)
 
     def on_time(self, sec: float, price: float | None):
-        """Zeitregeln auch ohne frische Lesung (z.B. 11:05 ohne Füllung)."""
+        """Zeitregeln auch ohne frische Lesung (11:05 ohne Füllung, 12:00, 15:55).
+        price = letzter bekannter Kurs (frische Lesung oder Close der letzten Kerze)."""
         if self.state == ARMED and sec >= FILL_END:
             self._finish(NOT_FILLED, None, None, "Entry bis 11:05 nicht berührt - kein Trade.")
+        elif self.state == IN_TRADE and price is not None:
+            self._time_rules(sec, price)
 
-    def _check_fill(self, sec: float, vals: tuple):
+    def _check_fill(self, sec: float, vals: tuple, need: int = 2):
         if sec >= FILL_END:
             self._finish(NOT_FILLED, None, None, "Entry bis 11:05 nicht berührt - kein Trade.")
             return
         _o, h, l, c = vals
         touched = l <= self.entry + EPS if self.direction == LONG else h >= self.entry - EPS
-        if not self._confirmed("entry", touched):
+        if not self._confirmed("entry", touched, need):
             return
         # Höchstens EINE Order pro Tag - der Zähler wird VOR dem Klick erhöht
         if self.orders_sent:
@@ -143,13 +155,14 @@ class TradeManager:
             return (h if h > fh else c), (l if l < fl else c)
         return h, l
 
-    def _manage(self, sec: float, vals: tuple):
+    def _manage(self, sec: float, vals: tuple, need: int = 2, time_rules: bool = True):
         c = vals[3]
         hi, lo = self._extremes(sec, vals)
         long = self.direction == LONG
-        stop_hit = self._confirmed("stop", lo <= self.sl + EPS if long else hi >= self.sl - EPS)
+        stop_hit = self._confirmed("stop", lo <= self.sl + EPS if long else hi >= self.sl - EPS,
+                                   need)
         tgt_hit = self._confirmed("ziel", hi >= self.target - EPS if long
-                                  else lo <= self.target + EPS)
+                                  else lo <= self.target + EPS, need)
         if stop_hit:                                   # konservativ: Stop zuerst
             res = BREAKEVEN if self.breakeven else STOP
             self._finish(res, sec, self.sl,
@@ -159,6 +172,11 @@ class TradeManager:
         if tgt_hit:
             self._finish(TARGET, sec, self.target, f"Ziel {fmt(self.target)} erreicht -> +2R.")
             return
+        if time_rules:
+            self._time_rules(sec, c)
+
+    def _time_rules(self, sec: float, c: float):
+        long = self.direction == LONG
         if not self.breakeven and sec >= BE_TIME:
             in_profit = c > self.entry + EPS if long else c < self.entry - EPS
             if in_profit:

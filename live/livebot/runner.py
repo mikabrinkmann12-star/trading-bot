@@ -54,7 +54,8 @@ class LiveRunner:
             self._close_bar(minute, approx)
         if fresh is not None and self.manager.state in (ARMED, IN_TRADE):
             self.manager.on_tick(sec, fresh)
-        self.manager.on_time(sec, fresh[3] if fresh else None)
+        last = self.actions.last_closed if self.actions else None
+        self.manager.on_time(sec, fresh[3] if fresh else (last[3] if last else None))
         if not self.manager.done and sec >= DAY_END and self.manager.state != IN_TRADE:
             self.manager._finish(self.manager.result or "Tagesende", None, None,
                                  "16:00 NY - Tag beendet.")
@@ -87,19 +88,27 @@ class LiveRunner:
             return
         if self.actions is not None:
             self.actions.prev_closed, self.actions.last_closed = self.actions.last_closed, vals
-        self.manager.on_bar_closed()
+        self.manager.on_bar_closed(minute, vals if exact else None)
         self.post(CANDLE, (self.manager.snapshot(self.engine.snapshot()), rep.events))
 
     def run(self, stop: threading.Event, clock: Callable = now_ny, poll: float = 0.5):
+        """Läuft, bis der Tag erledigt ist. Ein einzelner unerwarteter Fehler beendet den Lauf
+        NICHT (sonst würde ein offener Trade nicht mehr verwaltet) - erst 20 in Folge."""
+        errors = 0
         while not stop.is_set():
             try:
                 if not self.step(clock()):
                     return
+                errors = 0
             except Exception as exc:
-                self.finished = True
-                self.journal.log_action(f"FEHLER: {exc!r}")
-                self.post(ERROR, f"Unerwarteter Fehler: {exc!r}")
-                return
+                errors += 1
+                self.journal.log_action(f"FEHLER ({errors}x in Folge): {exc!r}")
+                if errors >= 20:
+                    self.finished = True
+                    self.post(ERROR, f"Wiederholter Fehler, Bot gestoppt: {exc!r}. Bitte "
+                                     f"offene Position in TradingView prüfen!")
+                    return
+                self.post(STATUS, (f"Fehler (läuft weiter): {exc!r}", "warn"))
             time.sleep(poll)
 
 

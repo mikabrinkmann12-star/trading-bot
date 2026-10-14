@@ -65,6 +65,17 @@ def change_ratio(a, b) -> float:
 STRONG, SOFT = 0.02, 0.005      # ab 2 % sicher verändert, ab 0,5 % "vermutlich"
 
 
+def ink_contrast(img) -> float:
+    """Wie kräftig ist die Schrift in einem Feld? (Abstand der Schrift zum Hintergrund,
+    nur mittlere Zeilen, damit der Feldrahmen nicht zählt.) Ein gesperrtes Feld (Schalter
+    aus) ist blasser als ein aktives."""
+    import numpy as np
+    g = img.astype(np.float32).mean(axis=2)
+    h = g.shape[0]
+    core = g[h // 4: h - h // 4] if h >= 8 else g
+    return float(np.percentile(np.abs(core - np.median(core)), 97))
+
+
 def changed(a, b, threshold: float = STRONG) -> bool:
     """Hat sich ein Bildausschnitt verändert (Dialog auf/zu)? Weißer Dialog auf weißem Chart
     ändert nur Text und Rahmen - das sind wenige Prozent der Pixel."""
@@ -240,6 +251,46 @@ class Drawer:
             return None
         return j
 
+    def _field_img(self, x: int, y: int):
+        if self.snap is None:
+            return None
+        try:
+            return self.snap(_rect_around(x, y, FIELD))
+        except Exception:
+            return None
+
+    def _fix_toggle(self, steps, toggle: int, x: int, y: int, key: str, side: str) -> bool:
+        """Den Schalter vor einem Feld nochmal umschalten (typisch: TP/SL waren von der letzten
+        Order noch AN, der aufgenommene Klick hat sie AUSgeschaltet -> Feld gesperrt).
+        Kontrolle: Wird das Feld dadurch BLASSER, war es vorher aktiv (die Zahl wurde nur falsch
+        gelesen) -> sofort zurückschalten. -> True = Schalter bleibt umgeschaltet."""
+        tx, ty = steps[toggle]["punkt"]
+        self.post(f"{key}: Zahl nicht übernommen - schalte den Schalter davor nochmal um ...")
+        before = self._field_img(x, y)
+        self.guard.click(tx, ty, f"{side} Schritt {toggle + 1} (Schalter nochmal)")
+        self.sleep(0.5)
+        after = self._field_img(x, y)
+        if before is None or after is None:
+            return True
+        cb, ca = ink_contrast(before), ink_contrast(after)
+        self.log(f"Schalter-Kontrolle '{key}': Schrift-Kontrast vorher {cb:.0f}, nachher {ca:.0f}")
+        if ca < cb * 0.75:
+            self.post(f"{key}: Feld ist dadurch blasser (gesperrt) geworden - Schalter zurück.")
+            self.guard.click(tx, ty, f"{side} Schritt {toggle + 1} (Schalter zurück)")
+            self.sleep(0.5)
+            return False
+        return True
+
+    def _final_check(self, typed: list, strict: tuple):
+        """Vor dem Bestätigen ALLE getippten Felder nochmal lesen (es darf sich nichts
+        verstellt haben, z.B. die Menge durch einen Tipper ins falsche Feld)."""
+        self.post("Letzte Kontrolle aller Felder vor dem Bestätigen ...")
+        for fx, fy, key, value, text in typed:
+            ok = self._field_ok(fx, fy, value)
+            if ok is False or (ok is None and key in strict):
+                self._abort(f"Letzte Kontrolle: Im Feld '{key}' steht nicht mehr sicher {text} - "
+                            f"abgebrochen, es wurde NICHT bestätigt.")
+
     def _leave_field(self):
         """Tab: Feld verlassen -> TradingView übernimmt den Wert, und der blinkende Cursor
         stört das Nachlesen nicht (sonst wird aus '0|' gern eine '9')."""
@@ -312,6 +363,7 @@ class Drawer:
         last_type = max((i for i, s in enumerate(steps) if s.get("tippe")), default=None)
         confirm_step = (last_type + 1 if last_type is not None and last_type + 1 <= last
                         else None)
+        typed: list[tuple[int, int, str, float, str]] = []
         for i, st in enumerate(steps):
             x, y = st["punkt"]
             double = bool(st.get("doppel"))
@@ -320,6 +372,8 @@ class Drawer:
                              and close_check != "off")
             if opens_dialog or closes_dialog:
                 before = self.snap(dialog_rect)          # Bild VOR dem Öffnen/Schließen
+            if i == confirm_step and strict and typed:
+                self._final_check(typed, strict)
 
             if i == create:
                 self.guard.click_in("chart", ax, ay, f"{side}: Box an aktueller Kerze anlegen")
@@ -375,29 +429,35 @@ class Drawer:
                 first_typed = True
                 toggle = self._toggle_before(steps, i, first_type, create, dbl)
                 tries = 0
+                must_change = False
                 while ok is not True and tries < 2:
                     tries += 1
                     if ok is None and key not in strict:
                         self.post(f"{key}: Feld nicht lesbar - kann es nicht prüfen.")
                         break
-                    if tries == 1 and toggle is not None and ok is False:
+                    if tries == 1 and toggle is not None:
                         # Typischer Fall: Schalter (z.B. Take Profit) war schon AN und wurde
                         # durch den aufgenommenen Klick AUSgeschaltet -> Feld gesperrt.
-                        tx, ty = steps[toggle]["punkt"]
-                        self.post(f"{key}: Zahl nicht übernommen - schalte den Schalter davor "
-                                  f"nochmal um und tippe neu ...")
-                        self.guard.click(tx, ty, f"{side} Schritt {toggle + 1} (Schalter nochmal)")
-                        self.sleep(0.4)
+                        must_change = self._fix_toggle(steps, toggle, x, y, key, side)
                     else:
                         self.post(f"{key}: Zahl stimmt nicht/unlesbar - tippe nochmal ...")
+                    # Bleibt der Schalter umgeschaltet, muss das Nachtippen BEWEISBAR wirken:
+                    # stand die Zahl schon vorher im Feld, könnte es ein gesperrtes Feld sein.
+                    had = (any(abs(n - value) < 0.01 for n in self._read_field(x, y)[0])
+                           if must_change and self.field_reader is not None else False)
                     self.guard.click(x, y, f"{side} Schritt {i + 1} (nochmal)")
                     self.sleep(0.3)
                     self.guard.type_text(text, key + " (nochmal)")
                     self._leave_field()
                     ok = self._field_ok(x, y, value)
+                    if ok is True and had:
+                        self.log(f"'{key}': Zahl stand schon VOR dem Nachtippen im Feld - "
+                                 f"Feld evtl. gesperrt, nicht sicher.")
+                        ok = False
                 if ok is False or (ok is None and key in strict):
                     self._abort(f"Im Feld '{key}' steht nicht sicher {text} - abgebrochen, "
                                 f"es wurde NICHT bestätigt.")
+                typed.append((x, y, key, value, text))
             self.sleep(pause)
 
         if final_esc:

@@ -319,10 +319,13 @@ def test_feld_mit_ticks_daneben_gilt_als_richtig():
     assert len([c for c in g.calls if c[0] == "type"]) == 3       # kein Nachtippen nötig
 
 
-def order_drawer(field_text=None, toggle_on_before=False):
+def order_drawer(field_text=None, toggle_on_before=False, grey_readable=True, grey_ink=170,
+                 stray_to=None):
     """Bestellfenster: Kauf-Knopf (100,100) öffnet, Menge (900,300), TP-Schalter (950,350),
     TP-Feld (900,400), SL-Schalter (950,450), SL-Feld (900,500), Bestätigen (1000,700),
-    X (1100,100). Schalter: aufgenommen als 'aus -> an'."""
+    X (1100,100). Schalter: aufgenommen als 'aus -> an'.
+    Gesperrtes Feld (Schalter aus): Schrift blass (grey_ink), Tippen wirkt nicht (oder landet
+    mit stray_to im falschen Feld). grey_readable=False: blasse Schrift ist für OCR unlesbar."""
     steps = [{"punkt": [100, 100], "doppel": False, "tippe": None},
              {"punkt": [900, 300], "doppel": False, "tippe": "menge"},
              {"punkt": [950, 350], "doppel": False, "tippe": None},
@@ -349,22 +352,39 @@ def order_drawer(field_text=None, toggle_on_before=False):
             state["open"] = False
         state["focus"] = (x, y)
 
+    fields = ((900, 300), (900, 400), (900, 500))
+
+    def enabled(f):
+        return f == (900, 300) or (f == (900, 400) and state["tp"]) or (
+            f == (900, 500) and state["sl"])
+
     def type_text(text, what):
         g.calls.append(("type", what, text))
         f = state["focus"]
-        if f == (900, 400) and not state["tp"] or f == (900, 500) and not state["sl"]:
-            return                                    # Feld gesperrt (Schalter aus)
+        if f in fields and not enabled(f):           # Feld gesperrt (Schalter aus)
+            if stray_to:
+                state["fields"][stray_to] = text      # Tipper landet im falschen Feld
+            return
         state["fields"][f] = text
 
     g.click = click
     g.type_text = type_text
     np = pytest.importorskip("numpy")
+    shown = {}
 
     def snap(rect):
+        center = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+        if center in fields and rect[2] == 220:
+            img = np.full((rect[3], rect[2], 3), 255, dtype=np.uint8)
+            img[rect[3] // 2 - 6: rect[3] // 2 + 6, 20:120:3] = 0 if enabled(center) else grey_ink
+            shown[id(img)] = (center, enabled(center))
+            return img
         return np.full((rect[3], rect[2], 3), 200 if state["open"] else 30, dtype=np.uint8)
 
     def read(img):
-        f = state["focus"]
+        f, en = shown.get(id(img), (None, True))
+        if f is None or (not en and not grey_readable):
+            return ""
         return state["fields"].get(f, "1" if f == (900, 300) else "28000.00")
 
     t = [0.0]
@@ -430,3 +450,73 @@ def test_offenes_bestellfenster_menge_unlesbar_geht_weiter():
     dr.play("kaufen", {"menge": 1, "ziel": 30189.25, "stop": 30089.25}, final_esc=False,
             decimal=".", close_check="off", strict=("ziel", "stop"), confirm_pause=2.5)
     assert ("click", 1000, 700) in g.calls
+
+
+ORDER = {"menge": 1, "ziel": 30189.25, "stop": 30089.25}
+ORDER_KW = dict(final_esc=False, decimal=".", close_check="off", strict=("ziel", "stop"),
+                confirm_pause=2.5)
+
+
+def test_schalter_an_und_blasses_feld_unlesbar_wird_trotzdem_korrigiert():
+    """Wie oben, aber das gesperrte (blasse) Feld ist für die OCR gar nicht lesbar."""
+    dr, g, state, slept = order_drawer(toggle_on_before=True, grey_readable=False)
+    dr.play("kaufen", ORDER, **ORDER_KW)
+    assert state["tp"] and state["sl"]
+    assert state["fields"][(900, 400)] == "30189.25" and state["fields"][(900, 500)] == "30089.25"
+    assert ("click", 1000, 700) in g.calls
+
+
+def test_zahl_nur_falsch_gelesen_schalter_wird_zurueckgeschaltet():
+    """Schalter war richtig (AN), nur die OCR hat sich einmal verlesen -> der Bot schaltet um,
+    merkt, dass das Feld blasser (gesperrt) wird, und schaltet sofort zurück."""
+    dr, g, state, slept = order_drawer()
+    base, n = dr.field_reader, [0]
+
+    def read(img):
+        text = base(img)
+        if text == "30189.25" and n[0] == 0:
+            n[0] += 1
+            return "30189.75"                                 # einmal verlesen
+        return text
+    dr.field_reader = read
+    dr.play("kaufen", ORDER, **ORDER_KW)
+    assert state["tp"] and state["sl"]                        # TP ist AN geblieben
+    assert g.calls.count(("click", 950, 350)) == 3            # an, um, zurück
+    assert ("click", 1000, 700) in g.calls
+
+
+def test_gesperrtes_feld_mit_alter_richtiger_zahl_wird_nicht_bestaetigt():
+    """Schlimmster Fall: Blässe nicht messbar (grey_ink=0), Bot schaltet TP versehentlich AUS,
+    im gesperrten Feld steht noch die richtige Zahl -> darf NICHT als Erfolg gelten."""
+    dr, g, state, slept = order_drawer(grey_ink=0)
+    base, n = dr.field_reader, [0]
+
+    def read(img):
+        text = base(img)
+        if text == "30189.25" and n[0] == 0:
+            n[0] += 1
+            return "30189.75"
+        return text
+    dr.field_reader = read
+    with pytest.raises(SafetyError, match="NICHT bestätigt"):
+        dr.play("kaufen", ORDER, **ORDER_KW)
+    assert ("click", 1000, 700) not in g.calls                # keine Order ohne TP
+
+
+def test_verstellte_menge_wird_vor_dem_bestaetigen_erkannt():
+    """Tippen in ein gesperrtes Feld landet in der Menge -> letzte Kontrolle stoppt."""
+    dr, g, state, slept = order_drawer(toggle_on_before=True, stray_to=(900, 300))
+    with pytest.raises(SafetyError, match="Letzte Kontrolle.*menge"):
+        dr.play("kaufen", ORDER, **ORDER_KW)
+    assert ("click", 1000, 700) not in g.calls
+
+
+def test_ink_contrast_blass_gegen_kraeftig():
+    np = pytest.importorskip("numpy")
+    from livebot.draw import ink_contrast
+    strong = np.full((32, 220, 3), 255, dtype=np.uint8)
+    pale = strong.copy()
+    strong[10:22, 20:120:3] = 0
+    pale[10:22, 20:120:3] = 170
+    assert ink_contrast(strong) > ink_contrast(pale) / 0.75
+    assert ink_contrast(np.full((32, 220, 3), 255, dtype=np.uint8)) == 0.0
