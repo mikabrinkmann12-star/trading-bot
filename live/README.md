@@ -18,6 +18,7 @@ Der Bot beobachtet den **Live-Chart**, rechnet die Strategie und handelt **selbs
   - Zusätzlich liest er jede fertige Kerze per Maus-Hover genau nach. Wurde Entry, Stop oder Ziel nur in den letzten Sekunden einer Kerze berührt, merkt er es so trotzdem.
   - Geht beim Kaufen etwas schief, kauft er **nie ein zweites Mal**. Er meldet es, und du prüfst in TradingView.
 - **Bestellfenster:** Nach jedem Feld liest er die Zahl nach. **Direkt vor dem Bestätigen** liest er alle Felder noch einmal. Steht TP oder SL nicht sicher richtig drin, bestätigt er **nicht** (keine Order ohne TP/SL).
+- **Maus im Chart:** Dann zeigt die Legende die Kerze unter der Maus, nicht die aktuelle. Solange deine Maus im Chart steht, liest der Bot **nicht** und meldet „Maus aus dem Chart nehmen!“. Über dem Bot-Fenster ist sie erlaubt.
 - Ein einzelner unerwarteter Fehler beendet den Lauf nicht. Erst nach 20 Fehlern in Folge stoppt er und meldet es rot.
 - F12 stoppt sofort, Maus in die linke obere Ecke ebenfalls. Pro Lauf sind höchstens 200 Aktionen erlaubt, jede steht in `logs\aktionen.log`.
 

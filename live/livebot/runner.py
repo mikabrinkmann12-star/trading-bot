@@ -26,11 +26,15 @@ class LiveRunner:
     def __init__(self, engine: StrategyEngine, manager: TradeManager, journal: Journal, *,
                  date: str, read_fn: Callable[[], tuple], post: Callable[[str, object], None],
                  actions=None, exact_fn: Callable[[tuple], tuple | None] | None = None,
-                 feed: LiveFeed | None = None):
+                 feed: LiveFeed | None = None,
+                 mouse_fn: Callable[[], tuple[int, int] | None] = lambda: None,
+                 chart_rect=None, ignore_fn: Callable[[], object] = lambda: None):
         self.engine, self.manager, self.journal = engine, manager, journal
         self.date, self.read_fn, self.post = date, read_fn, post
         self.actions, self.exact_fn = actions, exact_fn
         self.feed = feed or LiveFeed()
+        self.mouse_fn, self.chart_rect, self.ignore_fn = mouse_fn, chart_rect, ignore_fn
+        self.mouse_in = 0
         self.fails = 0
         self.finished = False
         self.saved_to = None            # Datei, in der das Tagesergebnis steht
@@ -39,11 +43,26 @@ class LiveRunner:
         if self.finished:
             return False
         sec = sec_of_day(now)
-        vals, text, _img = self.read_fn()
+        if self._mouse_in_chart():
+            # Die Legende zeigt jetzt die Kerze UNTER DER MAUS, nicht die aktuelle -> nicht lesen
+            self.mouse_in += 1
+            if self.mouse_in == 1 or self.mouse_in % 60 == 0:
+                self.post(STATUS, ("Maus aus dem Chart nehmen! Solange sie dort ist, liest der Bot "
+                                   "nicht (die Legende zeigt sonst die Kerze unter der Maus).",
+                                   "warn"))
+            vals, text = None, "(Maus im Chart)"
+        else:
+            self.mouse_in = 0
+            vals, text, _img = self.read_fn()
+            if self._mouse_in_chart():                    # während des Lesens reingefahren
+                self.mouse_in = 1
+                vals, text = None, "(Maus im Chart)"
         last_c = self.actions.last_closed[3] if self.actions and self.actions.last_closed else None
         if vals is not None and check_plausible(*vals, prev_close=last_c):
             vals = None                                   # unplausibel -> wie unlesbar
-        if vals is None:
+        if vals is None and self.mouse_in:
+            pass                                          # kein Lesefehler, nur gewartet
+        elif vals is None:
             self.fails += 1
             if self.fails in (10, 60) or self.fails % 300 == 0:
                 self.post(STATUS, (f"Legende {self.fails}x nicht lesbar (OCR: {text!r}). "
@@ -69,6 +88,16 @@ class LiveRunner:
             self.post(STATUS, (f"{now:%H:%M:%S} NY  Kerze {m2t(int(sec // 300) * 5)}: "
                                f"Kurs {fresh[3]:.2f}  ({self.manager.state})", "info"))
         return True
+
+    def _mouse_in_chart(self) -> bool:
+        """Steht die Maus (des Nutzers) im Chart? Über dem Bot-Fenster zählt nicht."""
+        try:
+            pos = self.mouse_fn()
+        except Exception:
+            return False
+        if not pos or not config.in_rect(pos[0], pos[1], self.chart_rect):
+            return False
+        return not config.in_rect(pos[0], pos[1], self.ignore_fn())
 
     def _close_bar(self, minute: int, approx: tuple):
         exact = None
@@ -214,9 +243,12 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
         finally:
             guard.move_to(*cfg["parkplatz"], "Maus parken")
 
+    from . import winutil
     runner = LiveRunner(engine, manager, journal, date=date, read_fn=read_fn,
                         post=lambda k, p: q.put((k, p)), actions=actions,
-                        exact_fn=exact_fn if cfg.get("genau_lesen", True) else None)
+                        exact_fn=exact_fn if cfg.get("genau_lesen", True) else None,
+                        mouse_fn=winutil.mouse_pos, chart_rect=cfg["chart"],
+                        ignore_fn=lambda: ui["fenster"])
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(manager.snapshot(engine.snapshot()))

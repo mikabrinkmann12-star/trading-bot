@@ -89,3 +89,37 @@ def test_zu_spaeter_start_wird_erklaert():
     why = start_problem(datetime(2026, 10, 15, 11, 0))
     assert "--probelauf" in why and "11:00" in why
     assert "Wochenende" in start_problem(datetime(2026, 10, 17, 8, 0))
+
+
+def test_maus_im_chart_wird_nicht_gelesen(tmp_path):
+    """Steht die Maus im Chart, zeigt die Legende eine ALTE Kerze (hier: Tief unter dem Entry).
+    Das darf weder eine Order auslösen noch als Kerze zählen."""
+    cs = read_candles(DATA / "2026-09-14.csv")
+    leg = TickingLegend(cs)
+    engine = StrategyEngine("2026-09-14")
+    acts = FakeActions()
+    acts.last_closed = acts.prev_closed = None
+    m = TradeManager(engine, acts)
+    posts = []
+    mouse = {"pos": None}
+    old = (28950.0, 28960.0, 28900.0, 28955.0)          # Kerze unter der Maus
+
+    def read():
+        if mouse["pos"]:
+            return old, "", None
+        return leg.read()
+    r = LiveRunner(engine, m, Journal(tmp_path), date="2026-09-14", read_fn=read,
+                   post=lambda k, p: posts.append((k, p)), actions=acts,
+                   mouse_fn=lambda: mouse["pos"], chart_rect=(0, 0, 1000, 600),
+                   ignore_fn=lambda: (800, 400, 200, 200))
+    sec = 9 * 3600 + 2
+    while sec < 10 * 3600 + 20 * 60:                    # bis 10:20, Entry noch nicht berührt
+        leg.now = datetime(2026, 9, 14, sec // 3600, sec // 60 % 60, sec % 60)
+        mouse["pos"] = (500, 300) if 10 * 3600 + 5 * 60 < sec < 10 * 3600 + 7 * 60 else None
+        r.step(leg.now)
+        sec += 2
+    assert acts.calls == []                             # keine Order wegen der alten Kerze
+    assert all(c.l != 28900.0 for c in engine.candles)
+    assert any("Maus aus dem Chart" in str(p) for k, p in posts)
+    mouse["pos"] = (900, 500)                           # über dem Bot-Fenster: zählt nicht
+    assert not r._mouse_in_chart()
