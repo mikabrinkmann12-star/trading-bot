@@ -11,6 +11,7 @@ DEFAULTS = {
     "naechste_kerze": None,   # [x, y]
     "fenster": None,          # [x, y] Position des Bot-Fensters
     "max_open_luecke": 25.0,  # Punkte: Open weicht so weit vom letzten Close ab -> Stopp
+    "klick_pause": 2.0,       # Sekunden Pause nach jedem Klick, bevor wieder gelesen wird
     "klick_timeout": 0,       # Sekunden ohne neue Kerze nach Klick -> Stopp (0 = aus, wartet ewig)
 }
 

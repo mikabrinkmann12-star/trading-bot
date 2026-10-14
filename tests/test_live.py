@@ -142,7 +142,8 @@ def test_auto_klickt_bis_ergebnis(tmp_path):
     engine = StrategyEngine("2026-09-14")
     posts = []
     reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read,
-                        post=lambda k, p: posts.append((k, p)), clicker=replay.click)
+                        post=lambda k, p: posts.append((k, p)), clicker=replay.click,
+                        click_pause=0)
     run_all(reader, 500)
     assert engine.result == "Ziel" and engine.r == 2
     assert engine.candles[-1].time == "11:30"
@@ -201,3 +202,22 @@ def test_auto_ohne_timeout_wartet_einfach(tmp_path):
     reader.step()
     reader.step()
     assert len(engine.candles) == 2
+
+
+def test_auto_pause_nach_klick(tmp_path):
+    """Nach jedem Klick 2 s nichts lesen und nicht klicken."""
+    now = [0.0]
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    click_times = []
+
+    def click():
+        click_times.append(now[0])
+        replay.click()
+    engine = StrategyEngine("2026-09-14")
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read, post=lambda k, p: None,
+                        clicker=click, clock=lambda: now[0], click_pause=2.0)
+    for _ in range(40):
+        reader.step()
+        now[0] += 0.5
+    gaps = [b - a for a, b in zip(click_times, click_times[1:])]
+    assert gaps and min(gaps) >= 2.0

@@ -30,6 +30,7 @@ class LiveReader:
                  max_open_gap: float = 25.0, stable: int = 2,
                  save_img: Callable[[object], str] | None = None,
                  clicker: Callable[[], None] | None = None, click_timeout: float | None = None,
+                 click_pause: float = 2.0,
                  clock: Callable[[], float] = time.monotonic):
         self.engine = engine
         self.journal = journal
@@ -50,6 +51,7 @@ class LiveReader:
         self.seen: set[tuple] = set()       # alle schon übernommenen Kerzen
         self.clicker = clicker
         self.click_timeout = click_timeout
+        self.click_pause = click_pause
         self.clock = clock
         self.clicked_at: float | None = None
 
@@ -61,6 +63,8 @@ class LiveReader:
         """Liest einmal. Gibt False zurück, wenn der Lauf zu Ende ist (fertig oder Fehler)."""
         if self.finished:
             return False
+        if self.clicked_at is not None and self.clock() - self.clicked_at < self.click_pause:
+            return True                   # nach jedem Klick erst Pause, TradingView braucht Zeit
         pos = self.mouse_fn()
         if pos and config.in_rect(pos[0], pos[1], self.chart_rect):
             self.post(STATUS, ("Maus aus dem Chart nehmen - die Legende zeigt sonst die Kerze "
@@ -209,7 +213,8 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         mouse_fn=winutil.mouse_pos, chart_rect=cfg.get("chart"), start=start,
         max_open_gap=float(cfg.get("max_open_luecke", 25.0)),
         save_img=lambda img: str(ocr.save_debug(img, journal.out / "logs", "fehler")),
-        clicker=clicker, click_timeout=float(cfg.get("klick_timeout") or 0) or None)
+        clicker=clicker, click_timeout=float(cfg.get("klick_timeout") or 0) or None,
+        click_pause=float(cfg.get("klick_pause", 2.0)))
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(engine.snapshot())

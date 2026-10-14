@@ -49,7 +49,7 @@ python bot.py --kalibrieren
    ```
    python bot.py --live --auto --datum 2026-09-25
    ```
-3. **Maus und Tastatur nicht anfassen.** Der Bot klickt selbst Kerze für Kerze weiter, liest jede Kerze und rechnet.
+3. **Maus und Tastatur nicht anfassen.** Der Bot klickt selbst Kerze für Kerze weiter (nach jedem Klick 2 s Pause, einstellbar in `config.json` bei `"klick_pause"`), liest jede Kerze und rechnet.
 4. Ist der Trade fertig (oder gibt es keinen Trade), hört er auf. Das Ergebnis steht im Fenster und in `trades.csv`.
 
 **Not-Aus:** **F12**, oder die Maus in die **linke obere Bildschirmecke** schieben, oder der Knopf „Stop“.
