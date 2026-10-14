@@ -159,3 +159,11 @@ def test_numbers_in():
     assert numbers_in("30915.5") == [30915.5]
     assert numbers_in("Preis 30 915,50 USD") == [30915.5]
     assert numbers_in("") == []
+
+
+def test_krummer_entry_wird_gerundet_und_trotzdem_bestaetigt():
+    """Fall vom Nutzer: Entry 29419.125 -> getippt 29419,25, TradingView zeigt 29419.25."""
+    dr, g = make_drawer(field_text=lambda n: ["29419.25", "29519.00", "29369.25"][n - 1])
+    dr.draw("long", 29419.125, 29369.25, 29518.875, anchor=(1333, 555))
+    typed = [c for c in g.calls if c[0] == "type"]
+    assert [c[2] for c in typed] == ["29419,25", "29519,00", "29369,25"]

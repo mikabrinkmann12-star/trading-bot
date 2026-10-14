@@ -198,8 +198,8 @@ class Drawer:
                                 "getroffen. Nichts getippt.")
 
             if st.get("tippe"):
-                value = values[st["tippe"]]
-                text = format_price(value, dec)
+                text = format_price(values[st["tippe"]], dec)
+                value = float(text.replace(",", "."))   # gerundeter Wert = was im Feld steht
                 self.sleep(0.3)
                 self.guard.type_text(text, st["tippe"])
                 self._leave_field()
