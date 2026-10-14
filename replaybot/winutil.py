@@ -45,3 +45,31 @@ def window_title_at(x: int, y: int) -> str:
     buf = ctypes.create_unicode_buffer(512)
     user32.GetWindowTextW(root, buf, 512)
     return buf.value
+
+
+def window_exe_at(x: int, y: int) -> str:
+    """Programmname (z.B. 'TradingView.exe') des Fensters am Punkt (x, y)."""
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    import os
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    user32.WindowFromPoint.argtypes = [wintypes.POINT]
+    user32.WindowFromPoint.restype = wintypes.HWND
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
+    hwnd = user32.GetAncestor(user32.WindowFromPoint(wintypes.POINT(x, y)), 2)
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    handle = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(1024)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return os.path.basename(buf.value)
+        return ""
+    finally:
+        kernel32.CloseHandle(handle)

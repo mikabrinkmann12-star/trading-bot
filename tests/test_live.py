@@ -2,7 +2,7 @@ from pathlib import Path
 
 from replaybot.csv_source import read_candles
 from replaybot.journal import Journal
-from replaybot.live import CANDLE, DONE, ERROR, STATUS, LiveReader
+from replaybot.live import DONE, ERROR, STATUS, LiveReader
 from replaybot.strategy import STOP, StrategyEngine
 
 DATA = Path(__file__).parent / "data"
@@ -82,12 +82,100 @@ def test_maus_im_chart_wird_nicht_gelesen(tmp_path):
     assert "Maus" in posts[-1][1][0]
 
 
-def test_open_luecke_gibt_warnung(tmp_path):
+def test_open_luecke_stoppt(tmp_path):
     big1 = (30000.0, 30010.0, 29990.0, 30000.0)
     big2 = (30040.0, 30050.0, 30030.0, 30045.0)   # Open 40 Punkte vom letzten Close weg
     reader, engine, posts = make([(big1, "")] * 2 + [(big2, "")] * 2, tmp_path,
                                  max_open_gap=25)
     run_all(reader, 4)
-    assert len(engine.candles) == 2
-    assert any(k == STATUS and "übersprungen" in p[0] for k, p in posts)
-    assert any(k == CANDLE for k, _ in posts)
+    assert len(engine.candles) == 1
+    assert reader.finished
+    assert posts[-1][0] == ERROR and "übersprungen" in posts[-1][1]
+
+
+def _v(c):
+    return (c.o, c.h, c.l, c.c)
+
+
+def test_fall_aus_dem_screenshot_zu_schnell_geklickt(tmp_path):
+    """9:30 verpasst (zu schnell geklickt), dann Maus über der 9:30 -> muss stoppen,
+    statt die 9:35 als 9:30 zu zählen."""
+    cs = {c.time: c for c in read_candles(DATA / "2026-09-25.csv")}
+    seq = ["09:10", "09:15", "09:20", "09:25", "09:35", "09:30", "09:35"]
+    reader, engine, posts = make([(_v(cs[t]), "") for t in seq for _ in range(2)],
+                                 tmp_path, start="09:10")
+    run_all(reader, 14)
+    assert [c.time for c in engine.candles] == ["09:10", "09:15", "09:20", "09:25"]
+    assert posts[-1][0] == ERROR
+
+
+def test_maus_ueber_alter_kerze_wird_ignoriert(tmp_path):
+    cs = {c.time: c for c in read_candles(DATA / "2026-09-25.csv")}
+    seq = ["09:10", "09:15", "09:20", "09:15", "09:15", "09:15", "09:20", "09:25"]
+    reader, engine, posts = make([(_v(cs[t]), "") for t in seq for _ in range(2)],
+                                 tmp_path, start="09:10")
+    run_all(reader, 16)
+    assert [c.time for c in engine.candles] == ["09:10", "09:15", "09:20", "09:25"]
+    assert engine.candles[-1].o == cs["09:25"].o
+    assert any(k == STATUS and "ältere Kerze" in p[0] for k, p in posts)
+
+
+class FakeReplay:
+    """Simuliert TradingView: die Legende springt erst nach einem Klick weiter."""
+
+    def __init__(self, candles):
+        self.candles = candles
+        self.i = 0
+        self.clicks = 0
+
+    def read(self):
+        return _v(self.candles[self.i]), "", None
+
+    def click(self):
+        self.clicks += 1
+        if self.i < len(self.candles) - 1:
+            self.i += 1
+
+
+def test_auto_klickt_bis_ergebnis(tmp_path):
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    engine = StrategyEngine("2026-09-14")
+    posts = []
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read,
+                        post=lambda k, p: posts.append((k, p)), clicker=replay.click)
+    run_all(reader, 500)
+    assert engine.result == "Ziel" and engine.r == 2
+    assert engine.candles[-1].time == "11:30"
+    assert replay.clicks == len(engine.candles) - 1     # nach der letzten Kerze kein Klick
+    assert posts[-1][0] == DONE
+
+
+def test_auto_timeout_wenn_nichts_passiert(tmp_path):
+    now = [0.0]
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    replay.click = lambda: None                         # Klick bewirkt nichts
+    engine = StrategyEngine("2026-09-14")
+    posts = []
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read,
+                        post=lambda k, p: posts.append((k, p)), clicker=replay.click,
+                        click_timeout=5, clock=lambda: now[0])
+    for _ in range(30):
+        if not reader.step():
+            break
+        now[0] += 0.5
+    assert posts[-1][0] == ERROR and "keine neue Kerze" in posts[-1][1]
+    assert len(engine.candles) == 1
+
+
+def test_auto_klick_verweigert_stoppt(tmp_path):
+    from replaybot.safety import SafetyError
+
+    def refuse():
+        raise SafetyError("kein TradingView-Fenster")
+    replay = FakeReplay(read_candles(DATA / "2026-09-14.csv"))
+    engine = StrategyEngine("2026-09-14")
+    posts = []
+    reader = LiveReader(engine, Journal(tmp_path), read_fn=replay.read,
+                        post=lambda k, p: posts.append((k, p)), clicker=refuse)
+    run_all(reader, 10)
+    assert posts[-1][0] == ERROR and "verweigert" in posts[-1][1]

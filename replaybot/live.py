@@ -1,6 +1,7 @@
 """Live-Modus: Legende vom Bildschirm lesen, Kerze für Kerze an die Engine geben.
 
-Phase 2: Du klickst selbst auf 'Nächste Kerze', der Bot liest automatisch mit.
+Ohne --auto: Du klickst selbst auf 'Nächste Kerze', der Bot liest automatisch mit.
+Mit --auto:  Der Bot klickt selbst und wartet nach jedem Klick auf genau eine neue Kerze.
 """
 from __future__ import annotations
 
@@ -27,7 +28,9 @@ class LiveReader:
                  mouse_fn: Callable[[], tuple[int, int] | None] = lambda: None,
                  chart_rect=None, start: str = "09:00", retries: int = 3,
                  max_open_gap: float = 25.0, stable: int = 2,
-                 save_img: Callable[[object], str] | None = None):
+                 save_img: Callable[[object], str] | None = None,
+                 clicker: Callable[[], None] | None = None, click_timeout: float = 5.0,
+                 clock: Callable[[], float] = time.monotonic):
         self.engine = engine
         self.journal = journal
         self.read_fn = read_fn
@@ -44,6 +47,11 @@ class LiveReader:
         self.pending_count = 0
         self.fails = 0
         self.finished = False
+        self.seen: set[tuple] = set()       # alle schon übernommenen Kerzen
+        self.clicker = clicker
+        self.click_timeout = click_timeout
+        self.clock = clock
+        self.clicked_at: float | None = None
 
     @property
     def next_time(self) -> str:
@@ -79,7 +87,17 @@ class LiveReader:
 
         if vals == self.last_vals:
             self.pending, self.pending_count = None, 0
+            if self.clicked_at is not None and self.clock() - self.clicked_at > self.click_timeout:
+                self._stop_error(f"Nach dem Klick auf 'Nächste Kerze' kam {self.click_timeout:.0f} s "
+                                 f"lang keine neue Kerze. Replay pausiert/am Ende oder Button "
+                                 f"verdeckt? Neu kalibrieren, falls sich das Layout geändert hat.")
+                return False
             self.post(STATUS, (f"Warte auf Kerze {self.next_time} ...", "info"))
+            return True
+        if vals in self.seen:
+            self.pending, self.pending_count = None, 0
+            self.post(STATUS, ("Legende zeigt eine ältere Kerze - Maus über dem Chart? "
+                               "Wird ignoriert.", "warn"))
             return True
         if vals != self.pending:          # erst übernehmen, wenn 'stable'-mal gleich gelesen
             self.pending, self.pending_count = vals, 1
@@ -94,8 +112,12 @@ class LiveReader:
     def _accept(self, vals) -> bool:
         candle = Candle(self.next_time, *vals)
         if self.last_vals and abs(candle.o - self.last_vals[3]) > self.max_open_gap:
-            self.post(STATUS, (f"Achtung {candle.time}: Open {candle.o:.2f} weit weg vom letzten "
-                               f"Close {self.last_vals[3]:.2f} - Kerze übersprungen?", "warn"))
+            self._stop_error(
+                f"Kerze {candle.time}: Open {candle.o:.2f} passt nicht zum letzten Close "
+                f"{self.last_vals[3]:.2f} ({abs(candle.o - self.last_vals[3]):.2f} Punkte). "
+                f"Entweder wurde eine Kerze übersprungen oder die Maus war über dem Chart - "
+                f"dann stimmt die Uhrzeit nicht mehr. Replay zurück auf 9:00 und neu starten.")
+            return False
         self.journal.log_candle(self.engine.date, candle, "ocr")
         try:
             rep = self.engine.on_candle(candle)
@@ -103,6 +125,7 @@ class LiveReader:
             self._stop_error(str(exc))
             return False
         self.last_vals = vals
+        self.seen.add(vals)
         self.minute += 5
         self.post(CANDLE, (self.engine.snapshot(), rep.events))
         if self.engine.done or candle.minute >= EXIT_TIME:
@@ -111,6 +134,13 @@ class LiveReader:
             self.finished = True
             self.post(DONE, self.engine.snapshot())
             return False
+        if self.clicker is not None:
+            try:
+                self.clicker()
+            except Exception as exc:
+                self._stop_error(f"Klick verweigert: {exc}")
+                return False
+            self.clicked_at = self.clock()
         return True
 
     def _stop_error(self, text: str):
@@ -144,8 +174,10 @@ def install_f12(journal: Journal):
     keyboard.add_hotkey("f12", kill)
 
 
-def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json") -> int:
+def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
+             auto: bool = False) -> int:
     from . import ocr, winutil
+    from .safety import Guard
     from .window import StatusWindow
 
     cfg = config.load(cfg_path)
@@ -154,7 +186,11 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json")
         return 1
     ocr.setup_tesseract(cfg.get("tesseract"))
     journal = Journal(out_dir)
-    journal.log_action(f"Start live: Datum {date}, Startkerze {start}")
+    journal.log_action(f"Start live: Datum {date}, Startkerze {start}, auto={auto}")
+    if auto and not cfg.get("naechste_kerze"):
+        print("'Nächste Kerze' ist nicht kalibriert. Zuerst: python bot.py --kalibrieren")
+        return 1
+    clicker = Guard(cfg, journal).click_next if auto else None
     install_f12(journal)
 
     engine = StrategyEngine(date)
@@ -170,11 +206,17 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json")
         engine, journal, read_fn=read_fn, post=lambda k, p: q.put((k, p)),
         mouse_fn=winutil.mouse_pos, chart_rect=cfg.get("chart"), start=start,
         max_open_gap=float(cfg.get("max_open_luecke", 25.0)),
-        save_img=lambda img: str(ocr.save_debug(img, journal.out / "logs", "fehler")))
+        save_img=lambda img: str(ocr.save_debug(img, journal.out / "logs", "fehler")),
+        clicker=clicker)
 
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(engine.snapshot())
-    win.set_status(f"Lese Legende ... Replay muss auf {start} stehen. Maus nicht über den Chart.")
+    if auto:
+        win.set_status(f"AUTO: Bot klickt selbst. Replay muss auf {start} stehen und pausiert "
+                       f"sein. Maus NICHT anfassen. F12 = sofort stoppen.", "warn")
+    else:
+        win.set_status(f"Lese Legende ... Replay muss auf {start} stehen. "
+                       f"Maus nicht über den Chart.")
 
     def pump():
         try:

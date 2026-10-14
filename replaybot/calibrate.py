@@ -148,6 +148,15 @@ def run(cfg_path: str = "config.json", steps=STEPS, countdown: int = 5) -> bool:
     config.save(cfg, cfg_path)
     print(f"Gespeichert in {cfg_path}.")
 
+    if "naechste_kerze" in result:
+        from . import winutil
+        x, y = result["naechste_kerze"]
+        title, exe = winutil.window_title_at(x, y), winutil.window_exe_at(x, y)
+        ok = "tradingview" in (title + exe).lower()
+        print(f"\nFenster am 'Nächste Kerze'-Button: Titel '{title}', Programm '{exe}'")
+        print("  -> Bot darf dort klicken." if ok else
+              "  -> ACHTUNG: kein TradingView-Fenster erkannt - --auto wird dort NICHT klicken.")
+
     if "legende" in result:
         setup_tesseract(cfg.get("tesseract"))
         try:

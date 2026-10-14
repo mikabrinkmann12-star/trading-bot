@@ -3,7 +3,8 @@
   python bot.py --csv tests/data/2026-09-25.csv            # Tag aus CSV durchrechnen
   python bot.py --csv tests/data/2026-09-25.csv --pruefen  # optional: Prüfmodus
   python bot.py --kalibrieren                              # einmalig: Legende/Buttons markieren
-  python bot.py --live --datum 2026-09-25                  # Bildschirm mitlesen
+  python bot.py --live --datum 2026-09-25                  # Bildschirm mitlesen (du klickst)
+  python bot.py --live --auto --datum 2026-09-25           # Bot klickt selbst durch
 """
 from __future__ import annotations
 
@@ -86,6 +87,8 @@ def main(argv=None) -> int:
                    help="Legende, Chart-Bereich und 'Nächste Kerze' markieren -> config.json")
     p.add_argument("--live", action="store_true",
                    help="Legende vom Bildschirm lesen (du klickst 'Nächste Kerze')")
+    p.add_argument("--auto", action="store_true",
+                   help="mit --live: Bot klickt 'Nächste Kerze' selbst")
     p.add_argument("--start", default="09:00",
                    help="Uhrzeit der Kerze, auf der das Replay beim Start steht (Standard 09:00)")
     p.add_argument("--config", default="config.json", help="Pfad zur config.json")
@@ -104,7 +107,7 @@ def main(argv=None) -> int:
     if args.live:
         from replaybot.live import run_live
         date = args.datum or input("Datum des Replay-Tages (z.B. 2026-09-25): ").strip()
-        return run_live(date, args.start, args.ausgabe, args.config)
+        return run_live(date, args.start, args.ausgabe, args.config, auto=args.auto)
     p.print_help()
     return 1
 

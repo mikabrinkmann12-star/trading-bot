@@ -6,8 +6,9 @@ Der Bot liest die Kerzen vom Bildschirm, rechnet die Strategie und zeigt dir Ent
 | Phase | Was | Stand |
 |---|---|---|
 | 1 | Rechenkern + CSV-Test | fertig |
-| 2 | Bildschirm lesen (OCR) + Kalibrierung + Fenster | fertig, bitte testen |
-| 3 | Bot klickt selbst + setzt Orders | folgt |
+| 2 | Bildschirm lesen (OCR) + Kalibrierung + Fenster | fertig |
+| 3a | `--auto`: Bot klickt „Nächste Kerze“ selbst | fertig, bitte testen |
+| 3b | `--orders`: Bot setzt die Limit-Order | folgt |
 
 ---
 
@@ -42,20 +43,26 @@ python bot.py --kalibrieren
   3. Auf den Replay-Button **„Nächste Kerze“** klicken, dann **Enter**.
 - `Esc` bricht ab. Zum Schluss steht im schwarzen Fenster „Test-OCR: O … H … L … C …“. **Vergleich das mit dem Chart.**
 
-### B) Mitlesen (Phase 2)
-1. Stell das Replay in TradingView auf die **9:00-Kerze** (NY-Zeit).
+### B) Automatisch durchlaufen lassen (empfohlen)
+1. Replay in TradingView auf die **9:00-Kerze** (NY-Zeit) stellen. Das Replay muss **pausiert** sein, also kein Abspielen.
 2. Start:
    ```
-   python bot.py --live --datum 2026-09-25
+   python bot.py --live --auto --datum 2026-09-25
    ```
-3. Unten rechts geht ein kleines Fenster auf. **Du** klickst jetzt in TradingView auf „Nächste Kerze“, **eine Kerze pro Sekunde, nicht schneller**.
-4. Der Bot liest jede Kerze automatisch und zeigt Richtung, Swing, BOS, Entry, Stop, Ziel und Ergebnis.
-5. Wenn der Trade fertig ist, steht das Ergebnis im Fenster und in `trades.csv`.
+3. **Maus und Tastatur nicht anfassen.** Der Bot klickt selbst Kerze für Kerze weiter, liest jede Kerze und rechnet.
+4. Ist der Trade fertig (oder gibt es keinen Trade), hört er auf. Das Ergebnis steht im Fenster und in `trades.csv`.
 
-**Wichtig:** Die Maus darf **nicht über dem Chart** sein. TradingView zeigt in der Legende sonst die Kerze unter der Maus an. Der Bot merkt das und wartet dann.
+**Not-Aus:** **F12**, oder die Maus in die **linke obere Bildschirmecke** schieben, oder der Knopf „Stop“.
+
+Der Bot klickt nur auf den kalibrierten „Nächste Kerze“-Punkt und nur, wenn dort TradingView liegt. Pro Lauf sind es höchstens 200 Klicks, und jeder Klick steht in `logs\aktionen.log`.
+
+### B2) Nur mitlesen, du klickst selbst
+```
+python bot.py --live --datum 2026-09-25
+```
+Klick langsam, **eine Kerze pro Sekunde**, und lass die Maus nicht über dem Chart. Überspringst du eine Kerze, **stoppt** der Bot, weil die Uhrzeit sonst falsch wäre. Dann das Replay zurück auf 9:00 stellen und neu starten.
 
 Startet das Replay nicht bei 9:00: `--start 09:10`.
-**F12** oder der Knopf „Stop“ beendet den Bot sofort.
 
 ### C) Tag aus einer CSV durchrechnen (ohne Bildschirm)
 ```
@@ -72,7 +79,9 @@ Optional mit Abfrage: `--pruefen`.
 | `Legende nicht lesbar` / `Test-OCR fehlgeschlagen` | Neu kalibrieren, das Rechteck enger um die Legende ziehen. Ist Tesseract installiert? |
 | `tesseract is not installed` | Tesseract installieren. Liegt es nicht in `C:\Program Files\Tesseract-OCR`, den Pfad in `config.json` bei `"tesseract"` eintragen. |
 | `Maus aus dem Chart nehmen` | Maus auf die Replay-Leiste oder neben den Chart bewegen |
-| `Achtung ... Kerze übersprungen?` | Du hast zu schnell geklickt. Stoppen, Replay zurück auf 9:00, neu starten |
+| `Open ... passt nicht zum letzten Close` | Kerze übersprungen oder Maus über dem Chart. Replay zurück auf 9:00 und neu starten |
+| `keine neue Kerze` (bei --auto) | Replay pausiert/am Ende oder Button verdeckt. Bei geändertem Layout neu kalibrieren |
+| `Klick verweigert: kein TradingView-Fenster` | Am „Nächste Kerze“-Punkt liegt ein anderes Fenster. TradingView nach vorne holen oder neu kalibrieren |
 | Zahlen falsch | Screenshot vom Bot-Fenster und der Legende schicken. Fehlerbilder liegen in `logs\` |
 
 ## Dateien
