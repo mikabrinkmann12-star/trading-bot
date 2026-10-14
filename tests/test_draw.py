@@ -39,9 +39,9 @@ def test_zeichnet_long_mit_richtigen_werten():
     Drawer(cfg, g, sleep=lambda s: None, snap=None).draw("long", 30845.0, 30763.5, 31008.0)
     assert g.calls == [
         ("click", 700, 1010), ("click", 1200, 400), ("dclick", 1200, 400),
-        ("click", 900, 300), ("type", "entry", "30845,00"),
-        ("click", 900, 400), ("type", "ziel", "31008,00"),
-        ("click", 900, 500), ("type", "stop", "30763,50"),
+        ("click", 900, 300), ("type", "entry", "30845,00"), ("press", "tab"),
+        ("click", 900, 400), ("type", "ziel", "31008,00"), ("press", "tab"),
+        ("click", 900, 500), ("type", "stop", "30763,50"), ("press", "tab"),
         ("click", 1000, 700),
         ("press", "esc"), ("move", 900, 925),
     ]

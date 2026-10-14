@@ -138,6 +138,13 @@ class Drawer:
             return None
         return any(abs(n - value) < 0.01 for n in nums)
 
+    def _leave_field(self):
+        """Tab: Feld verlassen -> TradingView übernimmt den Wert, und der blinkende Cursor
+        stört das Nachlesen nicht (sonst wird aus '0|' gern eine '9')."""
+        self.sleep(0.2)
+        self.guard.press("tab", "Feld verlassen")
+        self.sleep(0.4)
+
     def _abort(self, why: str):
         try:
             self.guard.press("esc", "Dialog schließen (Abbruch)")
@@ -195,14 +202,14 @@ class Drawer:
                 text = format_price(value, dec)
                 self.sleep(0.3)
                 self.guard.type_text(text, st["tippe"])
-                self.sleep(0.4)
+                self._leave_field()
                 ok = self._field_ok(x, y, value)
                 if ok is False:
                     self.post(f"{st['tippe']}: falsche Zahl im Feld - tippe nochmal ...")
                     self.guard.click(x, y, f"{side} Schritt {i + 1} (nochmal)")
                     self.sleep(0.3)
                     self.guard.type_text(text, st["tippe"] + " (nochmal)")
-                    self.sleep(0.4)
+                    self._leave_field()
                     if self._field_ok(x, y, value) is False:
                         self._abort(f"Im Feld '{st['tippe']}' steht nach 2 Versuchen nicht "
                                     f"{text} - abgebrochen.")
