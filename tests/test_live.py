@@ -284,3 +284,15 @@ def test_fehler_beim_zeichnen_stoppt(tmp_path):
     run_all(reader, 500)
     assert posts[-1][0] == ERROR and "Einzeichnen" in posts[-1][1]
     assert engine.candles[-1].time == "10:35"
+
+
+def test_einzeichnen_standardmaessig_an_wenn_aufgenommen():
+    from replaybot.live import drawing_mode
+    both = {"ablaeufe": {"long": [1], "short": [1]}}
+    only_long = {"ablaeufe": {"long": [1]}}
+    assert drawing_mode(both, None)[0] is True
+    assert drawing_mode(both, False)[0] is False
+    assert drawing_mode({}, None)[0] is False
+    on, rec, info = drawing_mode(only_long, None)
+    assert on is True and rec == ["long"] and "short fehlt" in info
+    assert drawing_mode(only_long, True)[0] is None          # erzwungen, aber unvollständig

@@ -230,8 +230,28 @@ def make_painter(cfg: dict, guard, post: Callable[[str, str], None],
     return paint
 
 
+def drawing_mode(cfg: dict, wanted: bool | None) -> tuple[bool | None, list[str], str]:
+    """(an?, aufgenommene Richtungen, Info-Text). an? = None heißt: erzwungen, aber es fehlt was."""
+    recorded = [d for d in ("long", "short") if (cfg.get("ablaeufe") or {}).get(d)]
+    missing = [d for d in ("long", "short") if d not in recorded]
+    if wanted and missing:
+        return None, recorded, ("Einzeichnen ist noch nicht aufgenommen für: "
+                                + ", ".join(missing) + "\nZuerst: "
+                                + "  und  ".join(f"python bot.py --aufnehmen {d}" for d in missing))
+    on = bool(recorded) if wanted is None else wanted
+    if on:
+        info = "Einzeichnen: AN (" + ", ".join(recorded) + " aufgenommen"
+        info += f"; {', '.join(missing)} fehlt - wird übersprungen)" if missing else ")"
+    elif recorded:
+        info = "Einzeichnen: AUS (--ohne-zeichnen)"
+    else:
+        info = "Einzeichnen: AUS - noch nichts aufgenommen: python bot.py --aufnehmen long / short"
+    return on, recorded, info
+
+
 def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
-             auto: bool = False, zeichnen: bool = False) -> int:
+             auto: bool = False, zeichnen: bool | None = None) -> int:
+    """zeichnen: True = erzwingen, False = aus, None = automatisch an, sobald aufgenommen."""
     from . import ocr, winutil
     from .safety import Guard
     from .window import StatusWindow
@@ -246,12 +266,11 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
     if auto and not cfg.get("naechste_kerze"):
         print("'Nächste Kerze' ist nicht kalibriert. Zuerst: python bot.py --kalibrieren")
         return 1
-    if zeichnen:
-        missing = [d for d in ("long", "short") if not (cfg.get("ablaeufe") or {}).get(d)]
-        if missing:
-            print("Einzeichnen ist noch nicht aufgenommen für: " + ", ".join(missing))
-            print("Zuerst: " + "  und  ".join(f"python bot.py --aufnehmen {d}" for d in missing))
-            return 1
+    zeichnen, recorded, info = drawing_mode(cfg, zeichnen)
+    print(info)
+    if zeichnen is None:          # erzwungen, aber nicht vollständig aufgenommen
+        return 1
+    journal.log_action(info)
     guard = Guard(cfg, journal)
     clicker = guard.click_next if auto else None
     install_f12(journal)
@@ -266,12 +285,18 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
         return vals, text, img
 
     ui = {"fenster": None}      # Rechteck des Bot-Fensters (beim Kerzensuchen ausblenden)
+    drawn = {"ok": False}
     on_fill = None
     if zeichnen:
         painter = make_painter(cfg, guard, lambda t, lvl: q.put((STATUS, (t, lvl))),
                                exclude_fn=lambda: [ui["fenster"]])
 
         def paint_fill(e: StrategyEngine):
+            if e.direction not in recorded:
+                q.put((STATUS, (f"{e.direction}-Einzeichnen nicht aufgenommen - übersprungen "
+                                f"(python bot.py --aufnehmen {e.direction}).", "warn")))
+                return
+            drawn["ok"] = True
             c = e.candles[-1]
             p = e.candles[-2] if len(e.candles) > 1 else None
             painter(e.direction, e.entry, e.stop, e.target, current=(c.o, c.h, c.l, c.c),
@@ -310,8 +335,14 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
                         print(ev)
                 elif kind == DONE:
                     win.show(payload)
-                    win.set_status(f"Fertig. Ergebnis gespeichert in {journal.trades}", "ok")
-                    print(f"Fertig: {payload['reason']}")
+                    msg = f"Fertig. Ergebnis gespeichert in {journal.trades}."
+                    if zeichnen and not drawn["ok"]:
+                        msg += (f" Nichts eingezeichnet, weil es keine Füllung gab "
+                                f"({engine.result}).")
+                    elif not zeichnen:
+                        msg += " Einzeichnen war AUS."
+                    win.set_status(msg, "ok")
+                    print(f"Fertig: {payload['reason']}  {msg}")
                 elif kind == ERROR:
                     win.set_status(payload, "error")
                     print(f"FEHLER: {payload}")

@@ -7,7 +7,7 @@
   python bot.py --live --auto --datum 2026-09-25           # Bot klickt selbst durch
   python bot.py --aufnehmen long                           # Einzeichnen einmal vormachen
   python bot.py --zeichnen-test long                       # Einzeichnen einzeln testen
-  python bot.py --live --auto --zeichnen --datum ...       # durchklicken + Position einzeichnen
+  python bot.py --live --auto --datum ...                  # zeichnet automatisch, wenn aufgenommen
   python bot.py --auswertung [--von 2026-09-01 --bis ...]  # Statistik aus trades.csv
 """
 from __future__ import annotations
@@ -109,8 +109,10 @@ def main(argv=None) -> int:
                    help="Legende vom Bildschirm lesen (du klickst 'Nächste Kerze')")
     p.add_argument("--auto", action="store_true",
                    help="mit --live: Bot klickt 'Nächste Kerze' selbst")
-    p.add_argument("--zeichnen", action="store_true",
-                   help="mit --live: bei Füllung Long/Short-Position einzeichnen und zoomen")
+    p.add_argument("--zeichnen", action="store_true", default=None,
+                   help="Einzeichnen erzwingen (Standard: automatisch an, sobald aufgenommen)")
+    p.add_argument("--ohne-zeichnen", dest="zeichnen", action="store_false",
+                   help="mit --live: nicht einzeichnen")
     p.add_argument("--aufnehmen", choices=["long", "short"],
                    help="Einzeichnen der Long-/Short-Position einmal vormachen und speichern")
     p.add_argument("--zeichnen-test", choices=["long", "short"],

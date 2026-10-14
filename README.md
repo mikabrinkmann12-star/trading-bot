@@ -120,10 +120,11 @@ Einstellbar in `config.json`, falls TradingView bei dir langsamer ist:
 | `"zoom_pause"` | `1.0` | Pause nach jedem Zoom-Zug |
 | `"doppelklick_versatz"` | `12` | So viele Pixel rechts vom Ankerpunkt macht er den Doppelklick |
 
-**3. Im Auto-Lauf:**
+**3. Im Auto-Lauf:** Das Einzeichnen ist **automatisch an**, sobald du Long/Short aufgenommen hast:
 ```
-python bot.py --live --auto --zeichnen --datum 2026-09-25
+python bot.py --live --auto --datum 2026-09-25
 ```
+Beim Start steht im schwarzen Fenster „Einzeichnen: AN“ oder „AUS“. Am Ende steht im Bot-Fenster, warum nichts eingezeichnet wurde, falls es keine Füllung gab (Kein Trade / nicht gefüllt). Ausschalten kannst du es mit `--ohne-zeichnen`.
 
 Wichtig: Die Werkzeugleiste und der Einstellungsdialog müssen beim Lauf **an derselben Stelle** sein wie beim Vormachen. Wenn du das Layout änderst, musst du neu aufnehmen.
 Das Dezimalzeichen beim Tippen ist `,`. Will TradingView bei dir einen Punkt, trag in `config.json` `"dezimal": "."` ein.
