@@ -337,3 +337,17 @@ def test_kurs_zurueck_ueber_dem_stop_order_normal():
     for s in (0, 1):
         tick(m, T(10, 35, s), 29017, 29017.75, 28860.0, 28950.0)
     assert [c[0] for c in acts.calls] == ["market", "draw"]
+
+
+def test_paper_fehler_speichert_bild_der_kontoname_stelle(tmp_path):
+    saved = []
+    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "v. . | ?. .",
+                     picture_fn=lambda rect, d: saved.append(rect) or "bild.png")
+    with pytest.raises(SafetyError, match="Kein Paper-Konto"):
+        lock.check("Break-even")
+    assert saved == [[1, 1, 10, 10]]
+    assert "bild.png" in (tmp_path / "logs" / "aktionen.log").read_text(encoding="utf-8")
+    ok = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Paper Trading",
+                   picture_fn=lambda rect, d: saved.append("nie"))
+    ok.check("Markt kaufen")
+    assert "nie" not in saved                          # bei OK wird nichts gespeichert
