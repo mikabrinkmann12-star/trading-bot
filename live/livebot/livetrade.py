@@ -22,7 +22,8 @@ TARGET, STOP, BREAKEVEN = "Ziel", "Stop", "Break-even"
 CLOSED_NOON, CLOSED_LATE = "Geschlossen 12:00", "Geschlossen 15:55"
 NOT_FILLED, ORDER_ERROR = "nicht gefüllt", "Order-Fehler"
 NO_PAPER = "Kein Paper-Konto"
-SKIPPED = "ausgelassen"            # Entry berührt, Kurs aber schon hinter Stop/Ziel
+SKIPPED = "ausgelassen"
+CLOSE_FAILED = "Schließen fehlgeschlagen"   # Position evtl. noch OFFEN            # Entry berührt, Kurs aber schon hinter Stop/Ziel
 TRADE_RESULTS = (TARGET, STOP, BREAKEVEN, CLOSED_NOON, CLOSED_LATE)
 
 FILL_END = (11 * 60 + 5) * 60      # 11:05:00 NY (Kerze 11:00 einschließlich)
@@ -132,7 +133,6 @@ class TradeManager:
             self._finish(SKIPPED, None, None,
                          f"Entry berührt, aber der Kurs {fmt(c)} steht schon hinter dem "
                          f"{'Stop' if past_stop else 'Ziel'} - KEINE Order.")
-            self.post(self.reason, "warn")
             return
         self.orders_sent += 1
         self.fill_time, self.fill_price = _hms(sec), c
@@ -146,13 +146,11 @@ class TradeManager:
                 # Paper-Sperre: es wurde garantiert NICHTS geklickt
                 self.fill_time = self.fill_price = None
                 self._finish(NO_PAPER, None, None, f"{exc} Es wurde NICHTS geklickt.")
-                self.post(self.reason, "error")
                 return
             # Nie ein zweiter Versuch: unklar, ob die Order rausging
             self._finish(ORDER_ERROR, None, None,
                          f"Order-Ablauf fehlgeschlagen ({exc}). Bitte in TradingView prüfen, "
                          f"ob eine Position offen ist - der Bot kauft NICHT nochmal.")
-            self.post(self.reason, "error")
             return
         self.state = IN_TRADE
         self.reason = (f"Im Trade seit {self.fill_time} (Kurs ca. {fmt(c)}). TP {fmt(self.target)}, "
@@ -237,8 +235,11 @@ class TradeManager:
         try:
             self.actions.close()
         except Exception as exc:
-            reason += f" ACHTUNG: Schließen fehlgeschlagen ({exc}) - bitte selbst schließen!"
-            self.post(reason, "error")
+            # NICHT als normal geschlossenen Trade speichern: die Position ist evtl. noch offen
+            self._finish(CLOSE_FAILED, sec, None,
+                         f"{reason} ACHTUNG: Schließen fehlgeschlagen ({exc}). Die Position ist "
+                         f"evtl. noch OFFEN - bitte in TradingView selbst schließen!")
+            return
         self._finish(result, sec, price, reason)
 
     def _finish(self, result: str, sec: float | None, price: float | None, reason: str):
@@ -257,7 +258,10 @@ class TradeManager:
             else:
                 diff = price - self.entry if self.direction == LONG else self.entry - price
                 self.r = diff / self.risk
-        self.post(reason, "ok" if result in TRADE_RESULTS else "info")
+        lvl = ("ok" if result in TRADE_RESULTS else
+               "error" if result in (ORDER_ERROR, NO_PAPER, CLOSE_FAILED) else
+               "warn" if result == SKIPPED else "info")
+        self.post(reason, lvl)
 
     # ------------------------------------------------------------ Ausgabe
     @property

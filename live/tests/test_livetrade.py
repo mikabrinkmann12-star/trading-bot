@@ -37,6 +37,8 @@ class FakeActions:
 
     def close(self):
         self.calls.append(("close",))
+        if self.fail == "close":
+            raise RuntimeError("Knopf nicht getroffen")
 
     def draw(self, d, entry, stop, target):
         self.calls.append(("draw", d))
@@ -491,3 +493,15 @@ def test_sequenz_breakeven_alleine_rechnet_mit_der_angegebenen_richtung():
     run_sequence(a, 30000.0, ["breakeven"], say=lambda s: None, sleep=lambda s: None, side="long")
     run_sequence(a, 30000.0, ["breakeven"], say=lambda s: None, sleep=lambda s: None)
     assert a.be == [30020.0, 29980.0, 29980.0]          # Short über dem Kurs, Long darunter
+
+
+def test_schliessen_fehlgeschlagen_wird_nicht_als_geschlossen_gespeichert():
+    m, acts = _in_trade(fail="close")
+    posts = []
+    m.post = lambda text, lvl: posts.append((lvl, text))
+    m.on_time(T(12, 0, 5), 28950.0)                    # im Minus -> schließen -> klappt nicht
+    from livebot.livetrade import CLOSE_FAILED, TRADE_RESULTS
+    assert m.result == CLOSE_FAILED and m.result not in TRADE_RESULTS
+    assert m.r is None and "OFFEN" in m.reason
+    assert posts[-1][0] == "error" and len([p for p in posts if "OFFEN" in p[1]]) == 1
+    assert m.row("2026-09-14")["R"] == ""

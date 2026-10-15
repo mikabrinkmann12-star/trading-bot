@@ -11,7 +11,8 @@ from . import config
 from .journal import Journal
 from .legend import check_plausible
 from .livefeed import LiveFeed, read_closed_exact
-from .livetrade import ARMED, IN_TRADE, TradeManager
+from .livetrade import (ARMED, CLOSE_FAILED, IN_TRADE, NO_PAPER, ORDER_ERROR,
+                        TRADE_RESULTS, WAIT, TradeManager)
 from .models import Candle, m2t
 from .nyclock import now_ny, sec_of_day, start_problem
 from .strategy import StrategyEngine
@@ -122,6 +123,9 @@ class LiveRunner:
             self.journal.log_action(f"Kerze {m2t(minute)} nur genähert (letzte Lesung): {vals}")
         candle = Candle(m2t(minute), *vals)
         self.journal.log_candle(self.date, candle, "live" if exact else "live~")
+        # Nach dem Setup rechnet die Strategie-Engine mit Replay-Regeln weiter (Limit-Füllung,
+        # Ausstieg 11:55) - diese Ereignisse NICHT anzeigen, es gelten die Live-Regeln.
+        was_waiting = self.manager.state == WAIT
         try:
             rep = self.engine.on_candle(candle)
         except ValueError as exc:
@@ -130,7 +134,8 @@ class LiveRunner:
         if self.actions is not None:
             self.actions.prev_closed, self.actions.last_closed = self.actions.last_closed, vals
         self.manager.on_bar_closed(minute, vals if exact else None)
-        self.post(CANDLE, (self.manager.snapshot(self.engine.snapshot()), rep.events))
+        self.post(CANDLE, (self.manager.snapshot(self.engine.snapshot()),
+                           rep.events if was_waiting else []))
 
     def run(self, stop: threading.Event, clock: Callable = now_ny, poll: float = 0.5):
         """Läuft, bis der Tag erledigt ist. Ein einzelner unerwarteter Fehler beendet den Lauf
@@ -218,7 +223,15 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
     stop = threading.Event()
     guard = Guard(cfg, journal, stop_event=stop)
     install_f12(journal)
-    post_status = lambda t, lvl: q.put((STATUS, (t, lvl)))   # noqa: E731
+    def post_status(text: str, lvl: str):
+        """Meldung ins Bot-Fenster. Warnungen und Fehler zusätzlich ins Log (und Fehler auf die
+        Konsole) - im Fenster überschreibt die nächste Lesung sie sonst nach einer halben
+        Sekunde."""
+        q.put((STATUS, (text, lvl)))
+        if lvl in ("warn", "error"):
+            journal.log_action(("FEHLER: " if lvl == "error" else "HINWEIS: ") + text)
+        if lvl == "error":
+            print(f"FEHLER: {text}")
 
     def set_window_visible(visible: bool):
         done = threading.Event()
@@ -270,13 +283,20 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
     win.set_status(("PROBELAUF" if probe_note else "LIVE") + ": Maus NICHT anfassen. F12 = sofort "
                    "stoppen. Warte auf Kerzen ab 9:00 NY.", "warn")
 
+    sticky = {"bis": 0.0}             # rote Meldung so lange stehen lassen (nicht überschreiben)
+
     def pump():
         ui["fenster"] = win.rect()
         try:
             while True:
                 kind, payload = q.get_nowait()
                 if kind == STATUS:
-                    win.set_status(*payload)
+                    text, lvl = payload
+                    if lvl == "error":
+                        sticky["bis"] = time.monotonic() + 30
+                    elif lvl == "info" and time.monotonic() < sticky["bis"]:
+                        continue              # rote Meldung nicht nach 0,5 s wegwischen
+                    win.set_status(text, lvl)
                 elif kind == "fenster":
                     visible, done = payload
                     win.set_visible(visible)
@@ -288,8 +308,11 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
                         print(ev)
                 elif kind == DONE:
                     win.show(payload)
+                    lvl = ("ok" if manager.result in TRADE_RESULTS else
+                           "error" if manager.result in (ORDER_ERROR, NO_PAPER, CLOSE_FAILED)
+                           else "info")
                     win.set_status(f"Fertig: {manager.reason} Gespeichert in "
-                                   f"{runner.saved_to or journal.trades}.", "ok")
+                                   f"{runner.saved_to or journal.trades}.", lvl)
                     print(f"Fertig: {manager.result} - {manager.reason}")
                 elif kind == ERROR:
                     win.set_status(payload, "error")
