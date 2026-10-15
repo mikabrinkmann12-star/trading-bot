@@ -139,3 +139,21 @@ def test_mengenfeld_mit_fremdtext_links_und_symbol(value):
     text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
     assert tight_part(text).strip() == value, text
     assert int(value) in pure_ints(text), text
+
+
+@pytest.mark.parametrize("label,kind", [("Stop-Loss Preis", "stop"), ("Take Profit Preis", "take"),
+                                        ("Take-Profit Preis", "take")])
+@pytest.mark.parametrize("dark", [False, True])
+def test_beschriftung_ueber_dem_feld_lesen(label, kind, dark):
+    """Wie im 'Position bearbeiten'-Fenster: Beschriftung links, darunter die obere Kante des
+    Felds, Schaltersymbol rechts."""
+    from livebot.draw import _default_label_reader, label_kind
+    font = ImageFont.truetype(FONT, 13)
+    bg, fg = ((19, 23, 34), (200, 200, 205)) if dark else ((255, 255, 255), (60, 60, 70))
+    img = Image.new("RGB", (260, 36), bg)
+    d = ImageDraw.Draw(img)
+    d.text((150, 6), label, font=font, fill=fg)                    # Beschriftung beginnt links
+    d.rounded_rectangle((148, 30, 259, 40), radius=5, outline=(120, 120, 120))
+    d.ellipse((235, 8, 255, 26), outline=(120, 120, 120))          # Schalter
+    text = _default_label_reader(np.array(img)[:, :, ::-1].copy())
+    assert label_kind(text) == kind, text

@@ -118,6 +118,7 @@ python live.py --auswertung
 | `"paper_wartezeit"` | `20` | so lange wartet die Paper-Sperre, wenn der Kontoname nicht lesbar ist (z. B. Meldung darüber) |
 
 ## Wenn was nicht geht
+- **„Über dem Feld … steht Take-Profit, erwartet wird Stop-Loss“:** Im Fenster „Position bearbeiten“ liegen die Felder je nach Position anders (nur SL: SL oben, TP und SL: TP oben, SL darunter). Der Bot liest vor dem Tippen die Beschriftung über dem Feld und tippt nichts, wenn sie nicht passt. Dann `python live.py --aufnehmen breakeven` neu machen, und zwar auf einer Position **mit TP und SL** (so wie der Bot sie anlegt), und ins **Stop-Loss**-Feld klicken.
 - **Break-even abgelehnt** (z. B. „Die Stop-Loss-Order muss oberhalb/unterhalb des Preises liegen“): Der Bot schließt das Fenster mit Esc, meldet es **rot** und lässt den **ursprünglichen Stop** stehen. Er versucht es **nicht noch einmal** und schließt die Position trotzdem spätestens um 15:55.
 - **`--aktion-test breakeven` allein:** Er fragt, ob die offene Position **Long (l)** oder **Short (s)** ist, und setzt den Test-Stop darunter bzw. darüber. Bei `--aktion-test alle` weiß er es selbst.
 - **`trades.csv` in Excel offen:** Der Bot läuft weiter. Das Ergebnis steht dann vorerst in `trades_nachtragen.csv` und wird beim nächsten Mal automatisch in `trades.csv` übernommen.

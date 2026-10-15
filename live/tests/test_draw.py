@@ -571,3 +571,62 @@ def test_breakeven_fenster_bleibt_offen_bricht_ab_und_schliesst_mit_esc():
     ok_i = g.calls.index(("click", 1000, 700))
     after = [c for c in g.calls[ok_i:] if c == ("press", "esc")]
     assert len(after) == 2                               # Esc zweimal: Fenster wird geschlossen
+
+
+def test_label_kind():
+    from livebot.draw import label_kind
+    assert label_kind("Take Profit Preis") == "take"
+    assert label_kind("Take-Profit Preis | Take Profit") == "take"
+    assert label_kind("Stop-Loss Preis") == "stop"
+    assert label_kind("Stop Loss") == "stop"
+    assert label_kind("xyz") is None and label_kind("") is None
+    assert label_kind("Stop Loss Take Profit") is None          # beides: unklar
+
+
+LABELS = {(900, 400): "Take Profit Preis", (900, 500): "Stop-Loss Preis"}
+
+
+def _order_with_labels(labels):
+    dr, g, state, slept = order_drawer()
+    dr.label_reader = lambda img: labels.get(state["focus"], "")
+    return dr, g, state
+
+
+def test_beschriftung_stimmt_order_laeuft_durch():
+    dr, g, state = _order_with_labels(LABELS)
+    dr.play("kaufen", ORDER, **ORDER_KW)
+    assert ("click", 1000, 700) in g.calls
+
+
+def test_beschriftung_vertauscht_nichts_getippt_nicht_bestaetigt():
+    # über dem 'ziel'-Feld steht Stop-Loss -> Ablauf passt nicht zum Fenster
+    dr, g, state = _order_with_labels({(900, 400): "Stop-Loss Preis", (900, 500): "Take Profit Preis"})
+    with pytest.raises(SafetyError, match="Über dem Feld 'ziel' steht Stop-Loss"):
+        dr.play("kaufen", ORDER, **ORDER_KW)
+    assert ("click", 1000, 700) not in g.calls
+    assert [c for c in g.calls if c[0] == "type" and "ziel" in c[1]] == []   # nichts ins Feld getippt
+
+
+def test_beschriftung_unlesbar_laeuft_weiter():
+    dr, g, state = _order_with_labels({})
+    dr.play("kaufen", ORDER, **ORDER_KW)
+    assert ("click", 1000, 700) in g.calls
+
+
+def test_breakeven_feld_mit_take_profit_beschriftung_wird_abgelehnt():
+    """Der echte Fall des Nutzers: das aufgenommene 'entry'-Feld ist das Take-Profit-Feld."""
+    steps = [{"punkt": [100, 100], "doppel": False, "tippe": None},
+             {"punkt": [900, 300], "doppel": False, "tippe": "entry"},
+             {"punkt": [1000, 700], "doppel": False, "tippe": None}]
+    g = FakeGuardIn()
+    np = pytest.importorskip("numpy")
+    dr = Drawer({"ablaeufe": {"breakeven": steps}, "chart": CHART_RECT}, g, sleep=lambda s: None,
+                snap=lambda rect: np.full((rect[3], rect[2], 3), 30, dtype=np.uint8),
+                field_reader=lambda img: "29000.00", clock=iter(range(0, 10000)).__next__,
+                label_reader=lambda img: "Take Profit Preis")
+    dr.save_img = lambda img, tag: tag
+    with pytest.raises(SafetyError, match="Take-Profit, erwartet wird Stop-Loss"):
+        dr.play("breakeven", {"entry": 29000.0}, final_esc=False, close_check="fatal",
+                strict=("entry",))
+    assert [c for c in g.calls if c[0] == "type"] == []
+    assert ("click", 1000, 700) not in g.calls

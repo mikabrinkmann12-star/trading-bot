@@ -210,13 +210,49 @@ def _default_save(img, tag: str, log_dir) -> str:
     return str(save_debug(img, log_dir, tag))
 
 
+LABEL_AREA = (150, 110, 52, 16)     # links, rechts, oben, unten: Beschriftung liegt ÜBER dem Feld
+# Welches Feld muss in welchem Ablauf welche Beschriftung haben?
+EXPECT_LABEL = {("breakeven", "entry"): "stop",
+                ("kaufen", "stop"): "stop", ("verkaufen", "stop"): "stop",
+                ("kaufen", "ziel"): "take", ("verkaufen", "ziel"): "take"}
+LABEL_NAMES = {"stop": "Stop-Loss", "take": "Take-Profit"}
+
+
+def label_kind(text: str) -> str | None:
+    """'stop' (Stop-Loss), 'take' (Take-Profit) oder None (unlesbar/unklar). Deutsch und Englisch
+    haben dieselben Wörter ('Stop-Loss Preis', 'Take Profit Preis')."""
+    letters = re.sub(r"[^a-z]", "", text.lower())
+    has_stop = "stop" in letters or "loss" in letters
+    has_take = "take" in letters or "profit" in letters
+    if has_stop and not has_take:
+        return "stop"
+    if has_take and not has_stop:
+        return "take"
+    return None
+
+
+def _default_label_reader(img) -> str:
+    import pytesseract
+
+    from .ocr import preprocess
+    texts = []
+    for scale, thr, psm in ((3, False, 7), (3, True, 7), (4, False, 6)):
+        text = pytesseract.image_to_string(preprocess(img, scale, thr),
+                                           config=f"--psm {psm}").strip()
+        if text:
+            texts.append(text.replace("\n", " "))
+    return " | ".join(texts)
+
+
 class Drawer:
     def __init__(self, cfg: dict, guard, *, sleep: Callable[[float], None] = time.sleep,
                  snap: Callable | None = _default_snap,
                  field_reader: Callable | None = _default_field_reader,
                  post: Callable[[str], None] = lambda text: None,
                  clock: Callable[[], float] = time.monotonic,
-                 save_img: Callable | None = None):
+                 save_img: Callable | None = None,
+                 label_reader: Callable | None = _default_label_reader):
+        self.label_reader = label_reader
         self.cfg = cfg
         self.guard = guard
         self.sleep = sleep
@@ -376,6 +412,31 @@ class Drawer:
                 self._abort(f"Letzte Kontrolle: Im Feld '{key}' steht nicht mehr sicher {text} - "
                             f"abgebrochen, es wurde NICHT bestätigt.")
 
+    def _check_label(self, name: str, key: str, x: int, y: int):
+        """Steht über dem angeklickten Feld die erwartete Beschriftung (Stop-Loss / Take-Profit)?
+        Das GEGENTEIL -> Abbruch (die Felder liegen je nach TP/SL anders als bei der Aufnahme).
+        Unlesbar -> nur Hinweis, weiter (die Zahlen-Kontrolle danach bleibt streng)."""
+        expected = EXPECT_LABEL.get((name, key))
+        if expected is None or self.snap is None or self.label_reader is None:
+            return
+        left, right, up, down = LABEL_AREA
+        try:
+            img = self.snap([x - left, y - up, left + right, up - down])
+            text = self.label_reader(img)
+        except Exception as exc:
+            img, text = None, f"Fehler: {exc!r}"
+        kind = label_kind(text)
+        self.log(f"Beschriftung über '{key}': {text!r} -> {kind or 'unklar'} "
+                 f"(erwartet {expected})")
+        if kind is None:
+            self.post(f"{key}: Beschriftung über dem Feld nicht lesbar - prüfe nur die Zahl.")
+            return
+        if kind != expected:
+            self._diag("beschriftung", img, text)
+            self._abort(f"Über dem Feld '{key}' steht {LABEL_NAMES[kind]}, erwartet wird "
+                        f"{LABEL_NAMES[expected]}. Die Felder liegen anders als bei der Aufnahme - "
+                        f"bitte '{name}' neu aufnehmen (Position MIT TP und SL). Nichts getippt.")
+
     def _leave_field(self):
         """Tab: Feld verlassen -> TradingView übernimmt den Wert, und der blinkende Cursor
         stört das Nachlesen nicht (sonst wird aus '0|' gern eine '9')."""
@@ -501,6 +562,7 @@ class Drawer:
                 else:
                     text = format_price(values[key], dec)
                     value = float(text.replace(",", "."))   # gerundeter Wert = was im Feld steht
+                self._check_label(name, key, x, y)
                 self.sleep(0.3)
                 self.guard.type_text(text, key)
                 self._leave_field()
