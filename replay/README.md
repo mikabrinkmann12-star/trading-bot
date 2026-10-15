@@ -20,7 +20,7 @@ Der Bot liest die Kerzen vom Bildschirm, rechnet die Strategie und zeigt dir Ent
 1. **Python** ist schon installiert. Prüfen kannst du das mit `python --version`.
 2. **Tesseract** installieren (liest die Zahlen vom Bildschirm):
    - Google: „tesseract UB Mannheim“ → Seite auf github.com → `tesseract-ocr-w64-setup-....exe` herunterladen → installieren (immer „Weiter“, Ordner nicht ändern).
-3. **Neuen Code holen:** Auf GitHub den Branch `claude/tradingview-replay-bot-e3heom` wählen → grüner Knopf „Code“ → „Download ZIP“ → entpacken (den alten Ordner kannst du löschen).
+3. **Neuen Code holen:** Auf GitHub den Branch `claude/tradingview-replay-bot-e3heom` wählen → grüner Knopf „Code“ → „Download ZIP“ → entpacken. **Vorher aus dem alten Ordner in den neuen kopieren:** `replay\config.json`, `replay\trades.csv`, `live\config.json`, `live\trades.csv` (falls vorhanden auch `trades_nachtragen.csv`). Erst danach den alten Ordner löschen.
 4. **Schwarzes Fenster im Bot-Ordner öffnen** (dort, wo `bot.py` liegt), z. B.:
    ```
    cd "C:\Users\mikab\Desktop\TRADING BOT\trading-bot-claude-tradingview-replay-bot-e3heom\replay"
@@ -40,7 +40,7 @@ Der Bot liest die Kerzen vom Bildschirm, rechnet die Strategie und zeigt dir Ent
 python bot.py --kalibrieren
 ```
 - Du hast 5 Sekunden, um auf TradingView zu klicken (Replay offen, Fenster so groß wie beim Training).
-- Dann wird ein Bildschirmfoto gemacht und es kommen 3 Schritte:
+- Dann wird ein Bildschirmfoto gemacht und es kommen 4 Schritte:
   1. Ein **Rechteck um die OHLC-Legende** oben links ziehen (O… H… L… C…), dann **Enter**.
   2. Ein **Rechteck um den Kerzenbereich** des Charts ziehen, dann **Enter**.
   3. Auf den Replay-Button **Vorwärts ▷|** klicken (rechts neben Play), dann **Enter**. **Nicht auf Play ▷**, denn Play spielt durch und überspringt Kerzen.
@@ -164,7 +164,7 @@ Der Bericht wird zusätzlich in `auswertung.txt` gespeichert. Unter 20 Trades ko
 | Bot wartet ewig („Warte auf Kerze ... seit 30 s“) | Falscher Button kalibriert? Es muss **Vorwärts ▷|** sein, nicht Play ▷. Neu kalibrieren |
 | `Klick verweigert: kein TradingView-Fenster` | Am „Nächste Kerze“-Punkt liegt ein anderes Fenster. TradingView nach vorne holen oder neu kalibrieren |
 | `Einzeichnen ist noch nicht aufgenommen` | Zuerst `--aufnehmen long` und `--aufnehmen short` |
-| Box falsch / Dialog geht nicht auf | Layout geändert? Neu aufnehmen. Mit `--zeichnen-test` prüfen. In `config.json` bei `"zeichnen_pause"` mehr Zeit geben (z.B. `1.0`) |
+| Box falsch / Dialog geht nicht auf | Layout geändert? Neu aufnehmen. Mit `--zeichnen-test` prüfen. In `config.json` bei `"zeichnen_pause"` mehr Zeit geben (z.B. `2.0`) |
 | `Position evtl. nicht ganz sichtbar` | Preisachse neu kalibrieren (Schritt 4), Rechteck nur um die Zahlen-Spalte |
 | Box ohne richtige Zahlen / tippt nicht | Rote Zeile aus dem Bot-Fenster, die letzten Zeilen aus `logs\aktionen.log` (Zeilen mit „Diagnose“) und die Bilder `logs\ocr_zeichnen_*.png` schicken. Darauf ist zu sehen, was der Bot im Feld gelesen hat |
 | Zahlen falsch | Screenshot vom Bot-Fenster und der Legende schicken. Fehlerbilder liegen in `logs\` |

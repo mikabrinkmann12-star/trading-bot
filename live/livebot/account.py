@@ -76,12 +76,8 @@ class PaperLock:
         ok = is_paper(text)
         tries = 1
         self.journal.log_action(f"Paper-Prüfung vor '{what}': {text!r} -> {'OK' if ok else 'NEIN'}")
-        saved = False
         dismissed = False
         while not ok and self.clock() < deadline:
-            if not saved:
-                self._save_picture(rect)              # was liegt gerade über dem Kontonamen?
-                saved = True
             if not dismissed and self.dismiss_fn is not None:
                 dismissed = True                      # EINMAL die Meldungen wegklicken
                 try:
@@ -97,7 +93,6 @@ class PaperLock:
             self.journal.log_action(f"Paper-Prüfung nach {tries} Lesungen: {text!r} -> "
                                     f"{'OK' if ok else 'NEIN'}")
         if not ok:
-            if not saved:
-                self._save_picture(rect)
+            self._save_picture(rect)      # nur wenn er aufgibt (nicht bei jeder kurzen Meldung)
             raise SafetyError(f"Kein Paper-Konto erkannt (gelesen: {text!r}) - '{what}' NICHT "
                               f"ausgeführt. Der Bot handelt nur im Paper-Trading-Konto.")

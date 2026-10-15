@@ -21,6 +21,7 @@ Der Bot beobachtet den **Live-Chart**, rechnet die Strategie und handelt **selbs
 - **Maus im Chart:** Dann zeigt die Legende die Kerze unter der Maus, nicht die aktuelle. Solange deine Maus im Chart steht, liest der Bot **nicht** und meldet „Maus aus dem Chart nehmen!“. Über dem Bot-Fenster ist sie erlaubt.
 - Ein einzelner unerwarteter Fehler beendet den Lauf nicht. Erst nach 20 Fehlern in Folge stoppt er und meldet es rot.
 - F12 stoppt sofort, Maus in die linke obere Ecke ebenfalls. Pro Lauf sind höchstens 200 Aktionen erlaubt, jede steht in `logs\aktionen.log`.
+- **Achtung beim Stoppen:** Eine offene Position bleibt dann in TradingView offen (mit TP und SL). Bitte selbst prüfen und ggf. schließen.
 
 ## Einmalig einrichten
 1. Im Ordner `live` das schwarze Fenster öffnen (Adresszeile → `cmd`) und Folgendes ausführen:
@@ -37,7 +38,7 @@ Der Bot beobachtet den **Live-Chart**, rechnet die Strategie und handelt **selbs
    1. die Legende
    2. den Chart-Bereich
    3. die Preisachse
-   4. den **Kontonamen** im Handelspanel (dort muss „Paper Trading“ stehen)
+   4. den **Kontonamen** im Handelspanel (dort muss „Paper Trading“ bzw. auf Deutsch „Papierhandel“ stehen)
    5. einen **Parkplatz** für die Maus außerhalb des Charts, z. B. am Rand der Watchlist
 
    Am Ende steht „Paper-Konto erkannt“.
@@ -68,7 +69,7 @@ Er macht nacheinander: kaufen → Break-even → schließen → verkaufen → Br
 ```
 python live.py --ohne-orders
 ```
-Er beobachtet, rechnet und zeichnet ein. Statt zu kaufen, schreibt er nur „Hier würde der Bot jetzt Markt kaufen“.
+Er beobachtet, rechnet und zeichnet ein. Statt zu kaufen, schreibt er nur „Hier würde der Bot jetzt Markt kaufen“. Die Ergebnisse landen im Ordner `ohne_orders\` und vermischen sich nicht mit deiner echten `trades.csv`.
 
 **Kompletten Ablauf sofort ausprobieren (Probelauf, Paper-Konto):**
 ```
@@ -77,6 +78,8 @@ python live.py --probelauf
 - Geht zu **jeder** Uhrzeit, zu der NQ handelt.
 - Der Bot stellt seine Uhr in ganzen 5 Minuten zurück, so dass „jetzt“ für ihn kurz vor 9:00 ist. Die Kerzen im Chart sind echt, nur die Uhrzeiten sind verschoben.
 - Danach läuft alles wie im echten Betrieb: Richtung, BOS, Entry, Order mit TP/SL, Box, 12:00-Regel.
+- Das ist eine **Generalprobe**: Er liest die Kerzen, die gerade live entstehen, nicht die von 9:00 bis 9:55. Ob es einen Trade gibt, ist Zufall. Er läuft in Echtzeit, also mehrere Stunden. Seine „12:00“ ist für dich etwa 3 Stunden nach dem Start.
+- Um 17:00 NY (23:00 deutscher Zeit) macht die Börse eine Stunde Pause. Willst du ihn vorher beenden: Stop-Knopf oder F12, offene Position dann selbst schließen.
 - Ergebnisse landen im Ordner `probelauf\` und vermischen sich **nicht** mit deiner echten `trades.csv`.
 - Mit `--ohne-orders` dahinter nur beobachten.
 
@@ -84,15 +87,17 @@ python live.py --probelauf
 ```
 python live.py
 ```
-- **Vor 9:04 NY** starten, am besten vor 9:00. Das ist normalerweise **15:00 deutscher Zeit**, vom **25.10. bis 31.10. aber 14:00**, weil Europa eine Woche früher die Uhr umstellt. Er braucht alle Kerzen ab 9:00.
-- Startest du später, sagt er das sofort und hört auf. Dann geht für diesen Tag nur noch `--probelauf`.
+- **Vor 9:04 NY** starten, am besten vor 9:00. Das ist meistens **15:00 deutscher Zeit**. Weil Europa und die USA die Uhr an verschiedenen Tagen umstellen, ist es ein paar Tage im März und Ende Oktober/Anfang November schon **14:00**. Er braucht alle Kerzen ab 9:00.
+- Startest du später, sagt er das sofort (mit der richtigen deutschen Uhrzeit) und hört auf. Dann geht für diesen Tag nur noch `--probelauf`.
 - **Maus und Tastatur nicht anfassen.** Der Bot liest laufend die Legende.
 - Er hört von selbst auf, wenn der Tag für ihn erledigt ist: kein Setup, nicht gefüllt oder Trade beendet.
 
 **Auswertung:**
 ```
 python live.py --auswertung
+python live.py --auswertung --von 2026-10-01 --bis 2026-10-31
 ```
+Die Statistik steht dann auch in `auswertung.txt`.
 
 ## Gut zu wissen
 - **Bestellfenster:** Es nimmt nur den **Punkt** als Dezimalzeichen (der Bot tippt `30189.25`). Das stellt `"dezimal_order"` in `config.json` ein, Standard `"."`.
@@ -108,7 +113,7 @@ python live.py --auswertung
 | Eintrag | Standard | Bedeutung |
 |---|---|---|
 | `"menge"` | `1` | Kontrakte pro Trade |
-| `"dezimal"` | `","` | Dezimalzeichen beim Tippen |
+| `"dezimal"` | `","` | Dezimalzeichen beim Einzeichnen der Long-/Short-Box |
 | `"order_pause"` | `0.3` | Pause zwischen den Klicks beim Kaufen (schnell!) |
 | `"zeichnen_pause"` | `1.0` | Pause beim Einzeichnen |
 | `"dialog_wartezeit"` | `3.0` | so lange wartet er höchstens auf ein Fenster/Dialog |
@@ -123,5 +128,8 @@ python live.py --auswertung
 - **`--aktion-test breakeven` allein:** Er fragt, ob die offene Position **Long (l)** oder **Short (s)** ist, und setzt den Test-Stop darunter bzw. darüber. Bei `--aktion-test alle` weiß er es selbst.
 - **`trades.csv` in Excel offen:** Der Bot läuft weiter. Das Ergebnis steht dann vorerst in `trades_nachtragen.csv` und wird beim nächsten Mal automatisch in `trades.csv` übernommen.
 - **„Es ist schon … NY“:** zu spät gestartet. Siehe oben, dann `--probelauf`.
-- **„Einstellungsdialog ist nicht aufgegangen“:** Schau in `logs\aktionen.log` nach der Zeile „Dialog-Prüfung: Veränderung … %“. In `logs\` liegen dann zwei Bilder `ocr_zeichnen_dialog_vorher_*.png` und `ocr_zeichnen_dialog_nachher_*.png`. Schick sie mir, falls es wieder passiert. Daran sehe ich, ob die Box verfehlt wurde oder der Dialog nur schwer zu erkennen war.
-Schick die rote Zeile aus dem Bot-Fenster, die letzten Zeilen aus `logs\aktionen.log` und, falls vorhanden, die Bilder `logs\ocr_*.png`.
+- **„Fenster ist nicht aufgegangen (Box/Knopf nicht getroffen)“:** Schau in `logs\aktionen.log` (beim Probelauf `probelauf\logs\aktionen.log`) nach der Zeile „Dialog-Prüfung: Veränderung … %“. In `logs\` liegen dann zwei Bilder `ocr_zeichnen_dialog_vorher_*.png` und `ocr_zeichnen_dialog_nachher_*.png`. Schick sie mir, falls es wieder passiert. Daran sehe ich, ob die Box verfehlt wurde oder der Dialog nur schwer zu erkennen war.
+Schick die rote Meldung (steht im Bot-Fenster, im schwarzen Fenster und als „FEHLER:“ in `logs\aktionen.log`), die letzten 40 Zeilen aus dem Log und, falls vorhanden, die Bilder `logs\ocr_*.png`:
+```
+powershell -c "Get-Content logs\aktionen.log -Tail 40 -Encoding UTF8"
+```
