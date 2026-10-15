@@ -41,7 +41,9 @@ class PaperLock:
     def __init__(self, cfg: dict, journal, read_fn: Callable[[object], str] = read_account,
                  picture_fn: Callable[[object, object], str] = _grab_and_save,
                  sleep: Callable[[float], None] = time.sleep,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 dismiss_fn: Callable[[], None] | None = None):
+        self.dismiss_fn = dismiss_fn      # klickt die Meldungen weg (aufgenommener Ablauf)
         self.cfg = cfg
         self.journal = journal
         self.read_fn = read_fn
@@ -75,10 +77,18 @@ class PaperLock:
         tries = 1
         self.journal.log_action(f"Paper-Prüfung vor '{what}': {text!r} -> {'OK' if ok else 'NEIN'}")
         saved = False
+        dismissed = False
         while not ok and self.clock() < deadline:
             if not saved:
                 self._save_picture(rect)              # was liegt gerade über dem Kontonamen?
                 saved = True
+            if not dismissed and self.dismiss_fn is not None:
+                dismissed = True                      # EINMAL die Meldungen wegklicken
+                try:
+                    self.dismiss_fn()
+                    self.journal.log_action("Meldungen weggeklickt")
+                except Exception as exc:
+                    self.journal.log_action(f"Meldungen wegklicken fehlgeschlagen: {exc}")
             self.sleep(1.5)
             text = self._read(rect)
             ok = is_paper(text)

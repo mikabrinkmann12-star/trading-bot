@@ -49,6 +49,7 @@ Der Bot beobachtet den **Live-Chart**, rechnet die Strategie und handelt **selbs
    | `python live.py --aufnehmen verkaufen` | dasselbe mit „Markt verkaufen“ | Menge **F5**, TP **F8**, SL **F7** |
    | `python live.py --aufnehmen breakeven` | im **Handelspanel unten** bei der Position „Bearbeiten“ → SL-Preisfeld → Ändern | SL-Feld **F6** (dort kommt der Entry rein) |
    | `python live.py --aufnehmen schliessen` | im **Handelspanel unten** bei der Position „Schließen“ (+ ggf. Bestätigen) | – |
+   | `python live.py --aufnehmen meldungen` | Kauf von Hand → die Meldungen unten links mit **einem** „Alle schließen/löschen“ wegklicken (1–2 Klicks) | – |
    | `python live.py --aufnehmen long` | Long-Box zeichnen wie im Replay | Entry **F6**, Ziel **F8**, Stop **F7** |
    | `python live.py --aufnehmen short` | Short-Box | Entry **F6**, Ziel **F8**, Stop **F7** |
 
@@ -95,7 +96,7 @@ python live.py --auswertung
 
 ## Gut zu wissen
 - **Bestellfenster:** Es nimmt nur den **Punkt** als Dezimalzeichen (der Bot tippt `30189.25`). Das stellt `"dezimal_order"` in `config.json` ein, Standard `"."`.
-- **Meldung „Order ausgefüllt“ unten links:** Sie verdeckt kurz den Kontonamen. Der Bot wartet dann bis zu 20 s (`"paper_wartezeit"`), liest den Kontonamen neu und klickt in dieser Zeit **nichts**. Erst wenn danach immer noch kein „Papier…/Paper…“ lesbar ist, bricht er ab und speichert ein Bild nach `logs\ocr_konto_fehler_*.png`.
+- **Meldung „Order ausgefüllt“ unten links:** Sie verdeckt kurz den Kontonamen. Der Bot wartet dann bis zu 20 s (`"paper_wartezeit"`), liest den Kontonamen neu und klickt in dieser Zeit **nichts**. Hast du den Ablauf `meldungen` aufgenommen, klickt er die Meldungen dabei **einmal** selbst weg (nur wenn der Kontoname nicht lesbar ist). Erst wenn danach immer noch kein „Papier…/Paper…“ lesbar ist, bricht er ab und speichert ein Bild nach `logs\ocr_konto_fehler_*.png`.
 - **Bestellfenster bleibt offen:** Nach dem Bestätigen wartet der Bot **2,5 s** (`"bestaetigen_pause"`) und klickt dann das aufgenommene **X**.
 - **Schalter für Take Profit / Stop Loss:** TradingView merkt sich, ob sie an sind. Waren sie schon **an**, schaltet der aufgenommene Klick sie aus. Dann bleibt das Feld gesperrt (blass). Der Bot merkt das, schaltet sie wieder **an** und tippt neu. Er prüft dabei, dass das Feld dadurch kräftiger und nicht blasser wird. Am besten nimmst du trotzdem mit ausgeschalteten Schaltern auf.
 - **Klickpunkte in Preisfeldern:** immer die **Zahl links** im Feld anklicken, nie das ⇄-Symbol rechts daneben.

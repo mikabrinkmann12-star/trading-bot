@@ -2,7 +2,7 @@
 
   python live.py --kalibrieren                 # Legende, Chart, Preisachse, Kontoname, Parkplatz
   python live.py --aufnehmen kaufen            # vormachen: kaufen, verkaufen, breakeven,
-                                               #            schliessen, long, short
+                                               #            schliessen, meldungen, long, short
   python live.py --zeichnen-test long          # Einzeichnen einzeln testen
   python live.py --aktion-test alle            # kaufen, break-even, schliessen, verkaufen, ... einmal
   python live.py --ohne-orders                 # beobachten + einzeichnen, OHNE zu kaufen
@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-ABLAEUFE = ["kaufen", "verkaufen", "breakeven", "schliessen", "long", "short"]
+ABLAEUFE = ["kaufen", "verkaufen", "breakeven", "schliessen", "meldungen", "long", "short"]
 
 
 def run_stats(args) -> int:

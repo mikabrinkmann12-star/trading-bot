@@ -223,9 +223,11 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
 
     ui = {"fenster": None}
     painter = make_painter(cfg, guard, post_status, exclude_fn=lambda: [ui["fenster"]])
+    paper = PaperLock(cfg, journal)
     actions = LiveActions(cfg, Drawer(cfg, guard, post=lambda t: post_status(t, "info")),
-                          PaperLock(cfg, journal), painter=painter, enabled=orders,
+                          paper, painter=painter, enabled=orders,
                           post=post_status, around=hidden)
+    paper.dismiss_fn = actions.dismiss_messages
     engine = StrategyEngine(date)
     manager = TradeManager(engine, actions, post=post_status)
 
@@ -413,6 +415,7 @@ def run_action_test(action: str, out_dir: str, cfg_path: str = "config.json",
     print("Los in 5 Sekunden - Maus nicht anfassen. F12 = Abbruch.")
     time.sleep(5)
     actions = LiveActions(cfg, Drawer(cfg, guard, post=lambda t: print(f"    {t}")), paper)
+    paper.dismiss_fn = actions.dismiss_messages
     ok = run_sequence(actions, price, steps)
     journal.log_action(f"Aktions-Test {action}: {'OK' if ok else 'FEHLER'}")
     print("Fertig." if ok else "Mit Fehler beendet.")

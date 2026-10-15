@@ -379,3 +379,31 @@ def test_paper_sperre_gibt_nach_der_wartezeit_auf(tmp_path):
     with pytest.raises(SafetyError, match="Kein Paper-Konto"):
         lock.check("Markt kaufen")
     assert 6 <= t[0] <= 9                                      # hat gewartet, dann abgelehnt
+
+
+def test_paper_sperre_klickt_meldungen_einmal_weg(tmp_path):
+    reads = iter(["Order ausgefüllt", "Order ausgefüllt", "Papierhandel"])
+    t = [0.0]
+    calls = []
+
+    def sleep(s):
+        t[0] += s
+    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: next(reads),
+                     picture_fn=lambda r, d: "b.png", sleep=sleep, clock=lambda: t[0],
+                     dismiss_fn=lambda: calls.append("weg"))
+    lock.check("Break-even")
+    assert calls == ["weg"]                                   # nur EINMAL, nicht bei jeder Lesung
+    ok = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Papierhandel",
+                   dismiss_fn=lambda: calls.append("nie"))
+    ok.check("Markt kaufen")
+    assert calls == ["weg"]                                   # bei lesbarem Konto wird nie geklickt
+
+
+def test_meldungen_ablauf_wird_nur_gespielt_wenn_aufgenommen():
+    drawer = FakeDrawer()
+    acts = LiveActions({"menge": 1}, drawer, None)
+    acts.dismiss_messages()                                   # nichts aufgenommen -> nichts tun
+    assert drawer.played == []
+    acts = LiveActions({"menge": 1, "ablaeufe": {"meldungen": [{"punkt": [5, 5]}]}}, drawer, None)
+    acts.dismiss_messages()
+    assert drawer.played == [("meldungen", {})]

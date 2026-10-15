@@ -27,6 +27,7 @@ REQUIRED = {
     "verkaufen": ("menge", "stop", "ziel"),
     "breakeven": ("entry",),
     "schliessen": (),
+    "meldungen": (),
 }
 
 ANLEITUNG = {
@@ -56,6 +57,13 @@ ANLEITUNG = {
      - NICHT das X an der Positionslinie im Chart: die liegt jeden Tag woanders.
   2. Falls eine Rückfrage kommt: Klick auf Bestätigen""",
 }
+ANLEITUNG["meldungen"] = """  Nach einem Kauf erscheint unten links die Meldung 'Order ausgefüllt' und verdeckt den
+  Kontonamen. Mach das Wegklicken einmal vor:
+  1. Kauf von Hand im Paper-Konto auslösen, damit die Meldung(en) erscheinen
+  2. Klick auf das Glocken-/Meldungs-Symbol bzw. auf 'Alle schließen / Alle löschen' - so, wie du
+     ALLE Meldungen auf einmal wegmachst (meist 1-2 Klicks)
+  3. Danach Position von Hand schließen
+  Der Bot klickt das nur, wenn er den Kontonamen nicht lesen kann (und nie sonst)."""
 ANLEITUNG["short"] = ANLEITUNG["long"].replace("Long", "Short")
 ANLEITUNG["verkaufen"] = ANLEITUNG["kaufen"].replace("kaufen", "verkaufen").replace(
     "Kaufen", "Verkaufen")

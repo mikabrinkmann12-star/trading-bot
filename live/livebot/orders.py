@@ -71,6 +71,13 @@ class LiveActions:
                                              pause=self._order_pause(),
                                              decimal=self._dec(), close_check="off"))
 
+    def dismiss_messages(self):
+        """Meldungen wie 'Order ausgefüllt' wegklicken (aufgenommener Ablauf 'meldungen').
+        Keine Paper-Prüfung nötig: Es wird nichts gekauft, nur geklickt."""
+        if not (self.cfg.get("ablaeufe") or {}).get("meldungen"):
+            return
+        self.drawer.play("meldungen", {}, final_esc=False, pause=0.3, close_check="off")
+
     def draw(self, direction: str, entry: float, stop: float, target: float):
         if self.painter is None or not (self.cfg.get("ablaeufe") or {}).get(direction):
             self.post(f"Einzeichnen '{direction}' nicht aufgenommen - übersprungen.", "warn")
