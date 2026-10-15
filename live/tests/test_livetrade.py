@@ -407,3 +407,34 @@ def test_meldungen_ablauf_wird_nur_gespielt_wenn_aufgenommen():
     acts = LiveActions({"menge": 1, "ablaeufe": {"meldungen": [{"punkt": [5, 5]}]}}, drawer, None)
     acts.dismiss_messages()
     assert drawer.played == [("meldungen", {})]
+
+
+def _in_trade_long(price_fn):
+    m, acts = armed_manager()
+    m.price_fn = price_fn
+    for s in (0, 1):
+        tick(m, T(10, 35, s), 29017, 29017.75, 28960, 28965)
+    assert m.state == IN_TRADE
+    return m, acts
+
+
+def test_zwoelf_uhr_kurs_wird_direkt_davor_neu_gelesen_minus_schliesst():
+    # zuletzt bekannt: im Plus (29005) - frisch gelesen: schon unter dem Entry (28950)
+    m, acts = _in_trade_long(lambda: 28950.0)
+    m.on_time(T(12, 0, 5), 29005.0)
+    assert acts.calls[-1] == ("close",) and m.result == CLOSED_NOON
+
+
+def test_zwoelf_uhr_frischer_kurs_im_plus_geht_auf_breakeven():
+    m, acts = _in_trade_long(lambda: 29010.0)
+    m.on_time(T(12, 0, 5), 28950.0)                       # alter Kurs im Minus, jetzt im Plus
+    assert acts.calls[-1] == ("breakeven", pytest.approx(28962.25))
+
+
+def test_zwoelf_uhr_kurs_nicht_lesbar_nimmt_den_bekannten():
+    m, acts = _in_trade_long(lambda: None)
+    m.on_time(T(12, 0, 5), 29005.0)
+    assert acts.calls[-1] == ("breakeven", pytest.approx(28962.25))
+    m2, acts2 = _in_trade_long(lambda: (_ for _ in ()).throw(RuntimeError("OCR")))
+    m2.on_time(T(12, 0, 5), 28900.0)
+    assert acts2.calls[-1] == ("close",)

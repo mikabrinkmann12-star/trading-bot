@@ -36,10 +36,12 @@ def _hms(sec: float) -> str:
 
 
 class TradeManager:
-    def __init__(self, engine, actions, *, post: Callable[[str, str], None] = lambda t, l: None):
+    def __init__(self, engine, actions, *, post: Callable[[str, str], None] = lambda t, l: None,
+                 price_fn: Callable[[], float | None] | None = None):
         self.engine = engine
         self.actions = actions
         self.post = post
+        self.price_fn = price_fn      # liest den Kurs JETZT (vor Break-even/Schließen)
         self.state = WAIT
         self.orders_sent = 0
         self.direction: str | None = None
@@ -191,6 +193,7 @@ class TradeManager:
     def _time_rules(self, sec: float, c: float):
         long = self.direction == LONG
         if not self.breakeven and sec >= BE_TIME:
+            c = self._fresh_price(c)                     # direkt vor der Entscheidung neu lesen
             in_profit = c > self.entry + EPS if long else c < self.entry - EPS
             if in_profit:
                 try:
@@ -207,6 +210,21 @@ class TradeManager:
             return
         if self.breakeven and sec >= CLOSE_TIME:
             self._close(sec, c, CLOSED_LATE, "15:55 erreicht -> Position geschlossen.")
+
+    def _fresh_price(self, fallback: float) -> float:
+        """Aktueller Kurs unmittelbar vor der 12:00-Entscheidung (sonst der bekannte Kurs)."""
+        if self.price_fn is None:
+            return fallback
+        try:
+            p = self.price_fn()
+        except Exception:
+            p = None
+        if p is None:
+            return fallback
+        if abs(p - fallback) > 1e-9:
+            self.post(f"Kurs direkt vor der 12:00-Entscheidung: {fmt(p)} (vorher {fmt(fallback)}).",
+                      "info")
+        return p
 
     def _close(self, sec: float, price: float, result: str, reason: str):
         try:

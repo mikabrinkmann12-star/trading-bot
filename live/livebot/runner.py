@@ -89,6 +89,17 @@ class LiveRunner:
                                f"Kurs {fresh[3]:.2f}  ({self.manager.state})", "info"))
         return True
 
+    def fresh_price(self) -> float | None:
+        """Kurs JETZT aus der Legende (None, wenn die Maus im Chart steht oder die Lesung
+        unplausibel/unlesbar ist)."""
+        if self._mouse_in_chart():
+            return None
+        vals, _text, _img = self.read_fn()
+        if vals is None:
+            return None
+        last = self.actions.last_closed[3] if self.actions and self.actions.last_closed else None
+        return None if check_plausible(*vals, prev_close=last) else vals[3]
+
     def _mouse_in_chart(self) -> bool:
         """Steht die Maus (des Nutzers) im Chart? Über dem Bot-Fenster zählt nicht."""
         try:
@@ -252,6 +263,7 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
                         mouse_fn=winutil.mouse_pos, chart_rect=cfg["chart"],
                         ignore_fn=lambda: ui["fenster"])
 
+    manager.price_fn = runner.fresh_price
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(manager.snapshot(engine.snapshot()))
     win.set_status(("PROBELAUF" if probe_note else "LIVE") + ": Maus NICHT anfassen. F12 = sofort "
