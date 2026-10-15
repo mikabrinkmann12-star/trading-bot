@@ -6,7 +6,7 @@ from livebot.models import Candle
 
 
 def rows(path):
-    with path.open(newline="", encoding="utf-8") as f:
+    with path.open(newline="", encoding="utf-8-sig") as f:
         return list(csv.DictReader(f))
 
 
@@ -37,3 +37,15 @@ def test_gesperrtes_log_stoppt_nichts(tmp_path):
     j.action_log.mkdir(parents=True)
     j.log_candle("2026-10-01", Candle("09:30", 1, 2, 0.5, 1.5), "live")
     j.log_action("Test")                              # darf nicht abstürzen
+
+
+def test_dateien_haben_bom_fuer_excel_und_powershell(tmp_path):
+    """Ohne BOM zeigen Excel und PowerShell 'PrÃ¼fung' statt 'Prüfung'. BOM nur EINMAL."""
+    j = Journal(tmp_path)
+    j.log_action("Paper-Prüfung")
+    j.log_action("noch eine Prüfung")
+    raw = j.action_log.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf") and raw.count(b"\xef\xbb\xbf") == 1
+    j.write_trade({"Datum": "2026-10-01", "Ergebnis": "Ziel", "R": "2.00"})
+    assert j.trades.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert rows(j.trades)[0]["Datum"] == "2026-10-01"          # Lesen klappt trotzdem

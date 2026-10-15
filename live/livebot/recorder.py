@@ -116,22 +116,21 @@ def meldungen_problem(cfg: dict, steps: list[dict]) -> str | None:
 
 
 def price_dependent_clicks(cfg: dict, name: str) -> list[str]:
-    """Order-Abläufe: Klicks VOR dem ersten Tipp-Feld mitten im Chart (z.B. auf die SL-Linie
-    oder das X an der Positionslinie) hängen vom Kurs ab und treffen morgen nichts mehr.
-    Ausgenommen ist der Bereich oben links (Legende, Kaufen/Verkaufen-Knöpfe)."""
+    """Order-Abläufe: Liegt der ERSTE Klick (der, der etwas öffnet) mitten im Kerzenbereich
+    (z.B. auf der SL-Linie oder dem X an der Positionslinie), hängt er vom Kurs ab und trifft
+    morgen nichts mehr. Ausgenommen: oben links (Legende, Kaufen/Verkaufen-Knöpfe) und alles
+    rechts der Preisachse (Bestellfenster). Spätere Klicks landen in Fenstern, die immer an
+    derselben Stelle aufgehen."""
     from .candlefind import legend_zone
     steps = (cfg.get("ablaeufe") or {}).get(name) or []
-    chart = cfg.get("chart")
-    if name not in ORDER_FLOWS or not chart:
+    plot = config.plot_rect(cfg)
+    if name not in ORDER_FLOWS or not plot or not steps:
         return []
-    zone = legend_zone(cfg.get("legende"), chart)
-    first_type = next((i for i, s in enumerate(steps) if s.get("tippe")), len(steps))
-    out = []
-    for i, s in enumerate(steps[:max(first_type, 1)]):
-        x, y = s["punkt"]
-        if config.in_rect(x, y, chart) and not config.in_rect(x, y, zone):
-            out.append(f"Schritt {i + 1} ({x}, {y}) liegt mitten im Chart")
-    return out
+    zone = legend_zone(cfg.get("legende"), cfg["chart"])
+    x, y = steps[0]["punkt"]
+    if config.in_rect(x, y, plot) and not config.in_rect(x, y, zone):
+        return [f"Schritt 1 ({x}, {y}) liegt mitten im Kerzenbereich"]
+    return []
 
 
 @dataclass

@@ -14,7 +14,7 @@ def load_trades(path: str | Path) -> list[dict]:
     p = Path(path)
     if not p.exists():
         return []
-    with p.open(newline="", encoding="utf-8") as f:
+    with p.open(newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     for r in rows:
         r["R"] = float(r["R"]) if (r.get("R") or "").strip() else None

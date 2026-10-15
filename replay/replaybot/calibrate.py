@@ -135,7 +135,7 @@ def screenshot_all():
     import cv2
     import mss
     import numpy as np
-    with mss.mss() as sct:
+    with (mss.MSS() if hasattr(mss, "MSS") else mss.mss()) as sct:   # neu: MSS, alt: mss
         mon = dict(sct.monitors[0])  # alle Bildschirme zusammen
         shot = np.array(sct.grab(mon))[:, :, :3]
     ok, png = cv2.imencode(".png", shot)

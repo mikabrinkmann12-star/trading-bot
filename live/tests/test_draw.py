@@ -630,3 +630,19 @@ def test_breakeven_feld_mit_take_profit_beschriftung_wird_abgelehnt():
                 strict=("entry",))
     assert [c for c in g.calls if c[0] == "type"] == []
     assert ("click", 1000, 700) not in g.calls
+
+
+def test_esc_wird_uebersprungen_wenn_tradingview_nicht_vorne_ist():
+    """Beim Aktions-Test ist zuerst das schwarze Fenster vorne: kein 'VERWEIGERT' im Log,
+    sondern stilles Überspringen."""
+    g = FakeGuardIn()
+    g.tv_in_front = lambda: False
+    logs = []
+    dr = Drawer({}, g, sleep=lambda s: None, snap=None, field_reader=None)
+    dr.log = logs.append
+    dr._close_dialogs("offene Dialoge schließen (Start)")
+    assert [c for c in g.calls if c[0] == "press"] == []
+    assert any("übersprungen" in line for line in logs)
+    g.tv_in_front = lambda: True
+    dr._close_dialogs("x")
+    assert [c for c in g.calls if c[0] == "press"] == [("press", "esc"), ("press", "esc")]

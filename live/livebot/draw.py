@@ -446,7 +446,13 @@ class Drawer:
 
     def _close_dialogs(self, what: str):
         """Zweimal Esc: das erste verlässt ggf. ein Eingabefeld, das zweite schließt den
-        Dialog. Geht nur, wenn TradingView vorne ist - sonst still überspringen."""
+        Dialog. Geht nur, wenn TradingView vorne ist - sonst still überspringen (z.B. beim
+        Aktions-Test, wenn noch das schwarze Fenster vorne ist: dann ist dort auch kein
+        TradingView-Fenster offen, das Esc bräuchte)."""
+        in_front = getattr(self.guard, "tv_in_front", None)
+        if in_front is not None and not in_front():
+            self.log(f"Esc übersprungen ({what}): TradingView ist nicht vorne.")
+            return
         for _ in range(2):
             try:
                 self.guard.press("esc", what)

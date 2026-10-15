@@ -27,7 +27,7 @@ def grab(region):
     import mss
     import numpy as np
     left, top, width, height = region
-    with mss.mss() as sct:
+    with (mss.MSS() if hasattr(mss, "MSS") else mss.mss()) as sct:   # neu: MSS, alt: mss
         shot = sct.grab({"left": left, "top": top, "width": width, "height": height})
     return np.array(shot)[:, :, :3].copy()
 

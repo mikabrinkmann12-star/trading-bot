@@ -123,3 +123,28 @@ def test_bot_spielt_gefaehrlichen_meldungen_ablauf_nie_ab():
     with _pt.raises(SafetyError, match="nicht abgespielt"):
         acts.dismiss_messages()
     assert d.played == []
+
+
+def test_klick_im_bestellpanel_rechts_der_preisachse_ist_keine_linie():
+    """Beim Nutzer reicht das Chart-Rechteck bis über das Bestellpanel (x=1617). Klicks dort
+    sind fest und dürfen keine Warnung auslösen; nur der ERSTE Klick zählt."""
+    from livebot.recorder import price_dependent_clicks
+    cfg = {"chart": [55, 75, 1620, 850], "preisachse": [1290, 80, 62, 840],
+           "legende": [60, 80, 730, 20],
+           "ablaeufe": {"breakeven": [{"punkt": [147, 1014], "doppel": False, "tippe": None},
+                                      {"punkt": [1617, 334], "doppel": False, "tippe": None},
+                                      {"punkt": [1448, 339], "doppel": False, "tippe": "entry"}],
+                        "schliessen": [{"punkt": [1643, 337], "doppel": False, "tippe": None},
+                                       {"punkt": [1069, 587], "doppel": False, "tippe": None}],
+                        "kaufen": [{"punkt": [700, 450], "doppel": False, "tippe": None}]}}
+    assert price_dependent_clicks(cfg, "breakeven") == []
+    assert price_dependent_clicks(cfg, "schliessen") == []      # Bestätigen-Dialog in der Mitte ok
+    assert price_dependent_clicks(cfg, "kaufen")                # 1. Klick mitten in den Kerzen
+
+
+def test_plot_rect_endet_an_der_preisachse():
+    from livebot.config import plot_rect
+    assert plot_rect({"chart": [55, 75, 1620, 850], "preisachse": [1290, 80, 62, 840]}) == \
+        [55, 75, 1297, 850]
+    assert plot_rect({"chart": [0, 0, 100, 50]}) == [0, 0, 100, 50]
+    assert plot_rect({}) is None

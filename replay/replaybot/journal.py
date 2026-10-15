@@ -7,6 +7,11 @@ from pathlib import Path
 
 from .models import Candle
 
+# Mit BOM schreiben: dann zeigen Excel und PowerShell (Get-Content) die Umlaute richtig
+# ('Prüfung' statt 'PrÃ¼fung'). Beim Anhängen an eine bestehende Datei kommt KEIN zweites BOM.
+ENC_WRITE = "utf-8-sig"
+ENC_READ = "utf-8-sig"            # liest Dateien mit und ohne BOM
+
 TRADE_COLS = ["Datum", "Richtung", "BOS-Zeit", "Entry", "Stop", "Ziel", "Risiko",
               "Ergebnis", "R"]
 CANDLE_COLS = ["Erfasst", "Datum", "Zeit", "O", "H", "L", "C", "Quelle"]
@@ -20,7 +25,7 @@ def _now() -> str:
 def _append(path: Path, cols: list[str], row: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     new = not path.exists()
-    with path.open("a", newline="", encoding="utf-8") as f:
+    with path.open("a", newline="", encoding=ENC_WRITE) as f:
         w = csv.DictWriter(f, fieldnames=cols)
         if new:
             w.writeheader()
@@ -30,7 +35,7 @@ def _append(path: Path, cols: list[str], row: dict):
 def _read_rows(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    with path.open(newline="", encoding="utf-8") as f:
+    with path.open(newline="", encoding=ENC_READ) as f:
         return list(csv.DictReader(f))
 
 
@@ -69,7 +74,7 @@ class Journal:
     def log_action(self, text: str):
         def write():
             self.action_log.parent.mkdir(parents=True, exist_ok=True)
-            with self.action_log.open("a", encoding="utf-8") as f:
+            with self.action_log.open("a", encoding=ENC_WRITE) as f:
                 f.write(f"{_now()}  {text}\n")
         self._safe(self.action_log, write)
 
@@ -88,7 +93,7 @@ class Journal:
                 latest[r.get("Datum") or f"_{len(latest)}"] = r
             rows += list(latest.values())
             self.trades.parent.mkdir(parents=True, exist_ok=True)
-            with self.trades.open("w", newline="", encoding="utf-8") as f:
+            with self.trades.open("w", newline="", encoding=ENC_WRITE) as f:
                 w = csv.DictWriter(f, fieldnames=TRADE_COLS, extrasaction="ignore")
                 w.writeheader()
                 w.writerows(rows)

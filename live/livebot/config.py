@@ -22,7 +22,7 @@ def load(path: str | Path = "config.json") -> dict:
     cfg = dict(DEFAULTS)
     p = Path(path)
     if p.exists():
-        cfg.update(json.loads(p.read_text(encoding="utf-8")))
+        cfg.update(json.loads(p.read_text(encoding="utf-8-sig")))   # auch mit BOM (Editor)
     return cfg
 
 
@@ -35,3 +35,18 @@ def in_rect(x: int, y: int, rect) -> bool:
         return False
     left, top, w, h = rect
     return left <= x < left + w and top <= y < top + h
+
+
+def plot_rect(cfg: dict):
+    """Der Kerzenbereich: das Chart-Rechteck, rechts begrenzt an der Preisachse (inklusive).
+    Alles weiter rechts (Bestellfenster, Watchlist) gehört nicht dazu - auch wenn das
+    kalibrierte Chart-Rechteck großzügig darüber gezogen wurde."""
+    chart = cfg.get("chart")
+    axis = cfg.get("preisachse")
+    if not chart:
+        return None
+    if not axis:
+        return list(chart)
+    left, top, w, h = chart
+    right = min(left + w, axis[0] + axis[2])
+    return [left, top, max(1, right - left), h]

@@ -158,7 +158,8 @@ def warn_price_dependent(cfg: dict, names: list[str]):
     for name in names:
         for warn in price_dependent_clicks(cfg, name):
             print(f"ACHTUNG Ablauf '{name}': {warn} - Linien im Chart liegen jeden Tag woanders."
-                  f" Besser neu aufnehmen: python live.py --aufnehmen {name}")
+                  f" Wenn das ein Klick auf eine Linie war: neu aufnehmen über das Handelspanel"
+                  f" (python live.py --aufnehmen {name}).")
 
 
 def install_f12(journal: Journal):
@@ -260,7 +261,7 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
     runner = LiveRunner(engine, manager, journal, date=date, read_fn=read_fn,
                         post=lambda k, p: q.put((k, p)), actions=actions,
                         exact_fn=exact_fn if cfg.get("genau_lesen", True) else None,
-                        mouse_fn=winutil.mouse_pos, chart_rect=cfg["chart"],
+                        mouse_fn=winutil.mouse_pos, chart_rect=config.plot_rect(cfg),
                         ignore_fn=lambda: ui["fenster"])
 
     manager.price_fn = runner.fresh_price
@@ -420,6 +421,12 @@ def run_action_test(action: str, out_dir: str, cfg_path: str = "config.json",
         return 1
     print(f"Paper-Konto erkannt. Kurs ca. {price:.2f}, Menge {int(cfg.get('menge', 1))}.")
     print("Ablauf: " + " -> ".join(steps))
+    side = None
+    if steps == ["breakeven"]:                  # Position schon offen: Richtung erfragen
+        while side is None:
+            answer = confirm("Ist die offene Position Long oder Short? (l/s): ").strip().lower()
+            side = {"l": "long", "long": "long", "s": "short", "short": "short"}.get(answer)
+        print(f"Break-even-Stop zum Test: {'unter' if side == 'long' else 'über'} dem Kurs.")
     print("Das sind ECHTE Klicks im Paper-Konto (Ein-Klick-Handel muss AUS sein).")
     if confirm("Zum Starten JA tippen: ").strip().lower() != "ja":
         print("Abgebrochen.")
@@ -428,12 +435,6 @@ def run_action_test(action: str, out_dir: str, cfg_path: str = "config.json",
     time.sleep(5)
     actions = LiveActions(cfg, Drawer(cfg, guard, post=lambda t: print(f"    {t}")), paper)
     paper.dismiss_fn = actions.dismiss_messages
-    side = None
-    if steps == ["breakeven"]:                  # Position schon offen: Richtung erfragen
-        while side is None:
-            answer = confirm("Ist die offene Position Long oder Short? (l/s): ").strip().lower()
-            side = {"l": "long", "long": "long", "s": "short", "short": "short"}.get(answer)
-        print(f"Break-even-Stop zum Test: {'unter' if side == 'long' else 'über'} dem Kurs.")
     ok = run_sequence(actions, price, steps, side=side)
     journal.log_action(f"Aktions-Test {action}: {'OK' if ok else 'FEHLER'}")
     print("Fertig." if ok else "Mit Fehler beendet.")

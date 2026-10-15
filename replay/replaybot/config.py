@@ -20,7 +20,7 @@ def load(path: str | Path = "config.json") -> dict:
     cfg = dict(DEFAULTS)
     p = Path(path)
     if p.exists():
-        cfg.update(json.loads(p.read_text(encoding="utf-8")))
+        cfg.update(json.loads(p.read_text(encoding="utf-8-sig")))   # auch mit BOM (Editor)
     return cfg
 
 

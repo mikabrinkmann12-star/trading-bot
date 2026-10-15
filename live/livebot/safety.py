@@ -187,6 +187,13 @@ class Guard:
         self._done(f"Ziehen {what} ({x1},{y1})->({x2},{y2})")
         self.backend.drag(x1, y1, x2, y2)
 
+    def tv_in_front(self) -> bool:
+        """Ist TradingView gerade im Vordergrund? (nur nachsehen, nichts tun, nicht zählen)"""
+        try:
+            return _is_tv(*self.foreground_fn())
+        except Exception:
+            return False
+
     def _foreground_ok(self, what: str):
         title, exe = self.foreground_fn()
         if not _is_tv(title, exe):
