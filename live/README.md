@@ -95,6 +95,7 @@ python live.py --auswertung
 
 ## Gut zu wissen
 - **Bestellfenster:** Es nimmt nur den **Punkt** als Dezimalzeichen (der Bot tippt `30189.25`). Das stellt `"dezimal_order"` in `config.json` ein, Standard `"."`.
+- **Meldung „Order ausgefüllt“ unten links:** Sie verdeckt kurz den Kontonamen. Der Bot wartet dann bis zu 20 s (`"paper_wartezeit"`), liest den Kontonamen neu und klickt in dieser Zeit **nichts**. Erst wenn danach immer noch kein „Papier…/Paper…“ lesbar ist, bricht er ab und speichert ein Bild nach `logs\ocr_konto_fehler_*.png`.
 - **Bestellfenster bleibt offen:** Nach dem Bestätigen wartet der Bot **2,5 s** (`"bestaetigen_pause"`) und klickt dann das aufgenommene **X**.
 - **Schalter für Take Profit / Stop Loss:** TradingView merkt sich, ob sie an sind. Waren sie schon **an**, schaltet der aufgenommene Klick sie aus. Dann bleibt das Feld gesperrt (blass). Der Bot merkt das, schaltet sie wieder **an** und tippt neu. Er prüft dabei, dass das Feld dadurch kräftiger und nicht blasser wird. Am besten nimmst du trotzdem mit ausgeschalteten Schaltern auf.
 - **Klickpunkte in Preisfeldern:** immer die **Zahl links** im Feld anklicken, nie das ⇄-Symbol rechts daneben.
@@ -113,6 +114,7 @@ python live.py --auswertung
 | `"bestaetigen_pause"` | `2.5` | Wartezeit nach dem Bestätigen der Order, bevor z. B. das X geklickt wird |
 | `"dezimal_order"` | `"."` | Dezimalzeichen im Bestellfenster |
 | `"genau_lesen"` | `true` | fertige Kerzen per Hover genau nachlesen |
+| `"paper_wartezeit"` | `20` | so lange wartet die Paper-Sperre, wenn der Kontoname nicht lesbar ist (z. B. Meldung darüber) |
 
 ## Wenn was nicht geht
 - **`trades.csv` in Excel offen:** Der Bot läuft weiter. Das Ergebnis steht dann vorerst in `trades_nachtragen.csv` und wird beim nächsten Mal automatisch in `trades.csv` übernommen.

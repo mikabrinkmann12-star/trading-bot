@@ -3,6 +3,7 @@ Steht dort nicht 'Paper' (deutsch: 'Papierhandel'), wird NICHTS geklickt."""
 from __future__ import annotations
 
 import re
+import time
 from typing import Callable
 
 from .safety import SafetyError
@@ -32,12 +33,21 @@ def _grab_and_save(rect, log_dir) -> str:
 
 
 class PaperLock:
+    """Vor jeder Order muss 'Paper' im Kontonamen stehen. Nach einem Kauf legt TradingView
+    unten links kurz die Meldung 'Order ausgefüllt' über den Kontonamen. Deshalb wird bei
+    'nicht erkannt' bis zu 'paper_wartezeit' Sekunden (Standard 20) gewartet und neu gelesen -
+    geklickt wird in dieser Zeit NICHTS. Erst dann gilt es als 'kein Paper-Konto'."""
+
     def __init__(self, cfg: dict, journal, read_fn: Callable[[object], str] = read_account,
-                 picture_fn: Callable[[object, object], str] = _grab_and_save):
+                 picture_fn: Callable[[object, object], str] = _grab_and_save,
+                 sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.monotonic):
         self.cfg = cfg
         self.journal = journal
         self.read_fn = read_fn
         self.picture_fn = picture_fn
+        self.sleep = sleep
+        self.clock = clock
 
     def _save_picture(self, rect):
         """Bild der Kontoname-Stelle sichern: so sieht man später, was der Bot sah."""
@@ -48,17 +58,36 @@ class PaperLock:
         except Exception as exc:
             self.journal.log_action(f"Bild der Kontoname-Stelle nicht gespeichert: {exc}")
 
+    def _read(self, rect) -> str:
+        try:
+            return self.read_fn(rect)
+        except Exception as exc:
+            return f"(Fehler: {exc})"
+
     def check(self, what: str):
         rect = self.cfg.get("konto")
         if not rect:
             raise SafetyError("Kontoname ist nicht kalibriert - ohne Paper-Prüfung keine Orders")
-        try:
-            text = self.read_fn(rect)
-        except Exception as exc:
-            text = f"(Fehler: {exc})"
+        wait = float(self.cfg.get("paper_wartezeit", 20.0))
+        deadline = self.clock() + wait
+        text = self._read(rect)
         ok = is_paper(text)
+        tries = 1
         self.journal.log_action(f"Paper-Prüfung vor '{what}': {text!r} -> {'OK' if ok else 'NEIN'}")
+        saved = False
+        while not ok and self.clock() < deadline:
+            if not saved:
+                self._save_picture(rect)              # was liegt gerade über dem Kontonamen?
+                saved = True
+            self.sleep(1.5)
+            text = self._read(rect)
+            ok = is_paper(text)
+            tries += 1
+        if tries > 1:
+            self.journal.log_action(f"Paper-Prüfung nach {tries} Lesungen: {text!r} -> "
+                                    f"{'OK' if ok else 'NEIN'}")
         if not ok:
-            self._save_picture(rect)
+            if not saved:
+                self._save_picture(rect)
             raise SafetyError(f"Kein Paper-Konto erkannt (gelesen: {text!r}) - '{what}' NICHT "
                               f"ausgeführt. Der Bot handelt nur im Paper-Trading-Konto.")

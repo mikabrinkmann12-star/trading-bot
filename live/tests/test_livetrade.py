@@ -201,7 +201,7 @@ class FakeDrawer:
 
 def test_kein_paper_keine_order(tmp_path):
     dr = FakeDrawer()
-    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Echtgeld-Konto")
+    lock = PaperLock({"konto": [1, 1, 10, 10], "paper_wartezeit": 0}, Journal(tmp_path), read_fn=lambda r: "Echtgeld-Konto")
     acts = LiveActions({"menge": 2}, dr, lock)
     with pytest.raises(SafetyError, match="Kein Paper-Konto"):
         acts.market("long", 90, 120)
@@ -271,7 +271,7 @@ def test_aktions_test_sequenz(tmp_path):
 
 def test_aktions_test_bricht_bei_fehler_ab(tmp_path):
     from livebot.runner import run_sequence
-    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "Echtgeld")
+    lock = PaperLock({"konto": [1, 1, 10, 10], "paper_wartezeit": 0}, Journal(tmp_path), read_fn=lambda r: "Echtgeld")
     acts = LiveActions({"menge": 1}, FakeDrawer(), lock)
     out = []
     assert not run_sequence(acts, 30000.0, ["kaufen", "schliessen"], say=out.append,
@@ -341,7 +341,7 @@ def test_kurs_zurueck_ueber_dem_stop_order_normal():
 
 def test_paper_fehler_speichert_bild_der_kontoname_stelle(tmp_path):
     saved = []
-    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: "v. . | ?. .",
+    lock = PaperLock({"konto": [1, 1, 10, 10], "paper_wartezeit": 0}, Journal(tmp_path), read_fn=lambda r: "v. . | ?. .",
                      picture_fn=lambda rect, d: saved.append(rect) or "bild.png")
     with pytest.raises(SafetyError, match="Kein Paper-Konto"):
         lock.check("Break-even")
@@ -351,3 +351,31 @@ def test_paper_fehler_speichert_bild_der_kontoname_stelle(tmp_path):
                    picture_fn=lambda rect, d: saved.append("nie"))
     ok.check("Markt kaufen")
     assert "nie" not in saved                          # bei OK wird nichts gespeichert
+
+
+def test_paper_sperre_wartet_bis_die_meldung_weg_ist(tmp_path):
+    """Nach dem Kauf liegt 'Order ausgefüllt' kurz über dem Kontonamen -> warten und neu lesen."""
+    reads = iter(["v. . | ?. .", "Order ausgefüllt", "Ww Papierhandel ~"])
+    t = [0.0]
+
+    def sleep(s):
+        t[0] += s
+    lock = PaperLock({"konto": [1, 1, 10, 10]}, Journal(tmp_path), read_fn=lambda r: next(reads),
+                     picture_fn=lambda r, d: "bild.png", sleep=sleep, clock=lambda: t[0])
+    lock.check("Break-even")                                   # klappt nach der 3. Lesung
+    assert t[0] == 3.0
+    log = (tmp_path / "logs" / "aktionen.log").read_text(encoding="utf-8")
+    assert "nach 3 Lesungen" in log and "-> OK" in log
+
+
+def test_paper_sperre_gibt_nach_der_wartezeit_auf(tmp_path):
+    t = [0.0]
+
+    def sleep(s):
+        t[0] += s
+    lock = PaperLock({"konto": [1, 1, 10, 10], "paper_wartezeit": 6}, Journal(tmp_path),
+                     read_fn=lambda r: "Echtgeld-Konto", picture_fn=lambda r, d: "bild.png",
+                     sleep=sleep, clock=lambda: t[0])
+    with pytest.raises(SafetyError, match="Kein Paper-Konto"):
+        lock.check("Markt kaufen")
+    assert 6 <= t[0] <= 9                                      # hat gewartet, dann abgelehnt
