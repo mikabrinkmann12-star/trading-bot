@@ -103,9 +103,10 @@ def strip_lines(gray):
 
 
 def tight_crop(img):
-    """Nur den Bereich um die Schrift ausschneiden (ohne Feldrahmen und Beschriftungen am
-    Rand), groß skalieren, schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest
-    Tesseract sonst fast nie. -> Bild oder None."""
+    """Nur den Textblock ausschneiden, der dem Klickpunkt (Bildmitte) am nächsten liegt - ohne
+    Feldrahmen, Symbole wie das Pfeil-Symbol 'Werte umschalten', Zahlen/Wörter rechts davon und
+    fremden Text links neben dem Feld. Dann groß skalieren, schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest Tesseract sonst fast nie. -> Bild
+    oder None."""
     import cv2
     import numpy as np
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -116,10 +117,27 @@ def tight_crop(img):
     dark[:, dark.mean(axis=0) > 0.6] = False              # senkrechte Rahmenlinien
     n, _lab, stats, cent = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
     h = g.shape[0]
-    keep = [i for i in range(1, n)
-            if stats[i, cv2.CC_STAT_HEIGHT] >= 4 and abs(cent[i][1] - h / 2) <= h * 0.3]
-    if not keep:
+    comps = sorted((i for i in range(1, n)
+                    if stats[i, cv2.CC_STAT_HEIGHT] >= 4
+                    and abs(cent[i][1] - h / 2) <= h * 0.3), key=lambda i: stats[i, 0])
+    if not comps:
         return None
+    gap_max = max(14, 1.6 * max(stats[i, cv2.CC_STAT_HEIGHT] for i in comps))
+    clusters = [[comps[0]]]
+    for i in comps[1:]:                       # zusammenhängender Text: Lücken < gap_max
+        prev = clusters[-1][-1]
+        if stats[i, 0] - (stats[prev, 0] + stats[prev, 2]) > gap_max:
+            clusters.append([i])
+        else:
+            clusters[-1].append(i)
+    mid = g.shape[1] / 2                      # Klickpunkt = Mitte; der Text im Feld liegt dort
+                                              # oder links davon, fremder Text weiter weg
+
+    def dist(cl):
+        lo = min(stats[i, 0] for i in cl)
+        hi = max(stats[i, 0] + stats[i, 2] for i in cl)
+        return 0 if lo <= mid <= hi else min(abs(lo - mid), abs(hi - mid))
+    keep = min(clusters, key=dist)
     x1 = min(stats[i, 0] for i in keep)
     y1 = min(stats[i, 1] for i in keep)
     x2 = max(stats[i, 0] + stats[i, 2] for i in keep)
@@ -131,9 +149,10 @@ def tight_crop(img):
 
 
 def _default_field_reader(img) -> str:
-    """Mehrere Vorverarbeitungen probieren (Rahmen und grauer Hintergrund stören), dazu
-    immer eine Lesung des eng ausgeschnittenen Texts. Beide Ergebnisse kommen zurück (durch
-    ' | ' getrennt) - die Kontrolle ist zufrieden, wenn EINE davon die richtige Zahl zeigt."""
+    """ALLE Vorverarbeitungen laufen durch; die Ergebnisse kommen zusammen zurück (durch ' | '
+    getrennt), danach nach ' # ' die Lesung des eng ausgeschnittenen Felds. Die Kontrolle ist
+    zufrieden, wenn EINE davon die richtige Zahl zeigt. (Früher
+    hat die erste Variante gewonnen, die irgendeine Zahl las - auch Müll vom Symbol im Feld.)"""
     import pytesseract
 
     from .ocr import preprocess
@@ -141,19 +160,33 @@ def _default_field_reader(img) -> str:
     texts = []
     for scale, thr, psm in ((3, False, 7), (3, True, 7), (4, False, 6), (2, False, 7)):
         text = pytesseract.image_to_string(strip_lines(preprocess(img, scale, thr)),
-                                           config=f"--psm {psm} {wl}")
-        if numbers_in(text):
-            texts.append(text.strip())
-            break
+                                           config=f"--psm {psm} {wl}").strip()
+        if numbers_in(text) and text not in texts:
+            texts.append(text)
     try:
         tight = tight_crop(img)
     except Exception:
         tight = None
+    only_field = ""
     if tight is not None:
-        text = pytesseract.image_to_string(tight, config=f"--psm 7 {wl}").strip()
-        if numbers_in(text):
-            texts.append(text)
-    return " | ".join(texts)
+        only_field = pytesseract.image_to_string(tight, config=f"--psm 7 {wl}").strip()
+    out = " | ".join(texts)
+    return f"{out} # {only_field}"
+
+
+def tight_part(text: str) -> str | None:
+    """Der Teil der Feld-Lesung, der NUR das Feld zeigt (nach ' # '), sonst None."""
+    return text.split(" # ", 1)[1] if " # " in text else None
+
+
+def pure_ints(text: str) -> list[int]:
+    """Nur ALLEINSTEHENDE ganze Zahlen im OCR-Text ('1', '10'), keine Teile von Preisen oder
+    Müll wie '730,00'. Für das Mengenfeld."""
+    out = []
+    for part in re.split(r"[\s|]+", text):
+        if re.fullmatch(r"\d{1,3}", part):
+            out.append(int(part))
+    return out
 
 
 def _default_snap(rect):

@@ -112,3 +112,30 @@ def test_kleine_zahl_im_feld_lesen(value, dark):
     d.text((10, 10), value, font=font, fill=fg)
     text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
     assert float(value) in numbers_loose(text), text
+
+
+def test_mengenfeld_echter_ausschnitt_vom_nutzer():
+    """Echter Ausschnitt (220x32) aus dem TradingView des Nutzers: links neben dem Feld steht
+    blauer Fremdtext ('930,00'), in der Mitte das Pfeil-Symbol, im Feld die '1'."""
+    import cv2
+    from livebot.draw import _default_field_reader, pure_ints, tight_part
+    img = cv2.imread(str(Path(__file__).parent / "data" / "menge_feld_tradingview.png"))
+    assert img is not None
+    text = _default_field_reader(img)
+    assert 1 in pure_ints(text), text
+    assert tight_part(text).strip() == "1", text            # nur das Feld, ohne Fremdtext
+
+
+@pytest.mark.parametrize("value", ["1", "2", "5"])
+def test_mengenfeld_mit_fremdtext_links_und_symbol(value):
+    from livebot.draw import _default_field_reader, pure_ints, tight_part
+    font = ImageFont.truetype(FONT, 13)
+    img = Image.new("RGB", (220, 32), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.text((0, 6), "930,00", font=font, fill=(30, 60, 170))       # Fremdtext links
+    d.rounded_rectangle((56, 2, 219, 26), radius=5, outline=(200, 200, 200))
+    d.text((64, 6), value, font=font, fill=(30, 30, 30))
+    d.rectangle((150, 10, 162, 20), outline=(110, 110, 110))        # Symbol
+    text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
+    assert tight_part(text).strip() == value, text
+    assert int(value) in pure_ints(text), text

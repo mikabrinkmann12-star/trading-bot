@@ -520,3 +520,25 @@ def test_ink_contrast_blass_gegen_kraeftig():
     pale[10:22, 20:120:3] = 170
     assert ink_contrast(strong) > ink_contrast(pale) / 0.75
     assert ink_contrast(np.full((32, 220, 3), 255, dtype=np.uint8)) == 0.0
+
+
+def test_pure_ints_und_tight_part():
+    from livebot.draw import pure_ints, tight_part
+    assert pure_ints("730,00 1 | 930,00 # 1") == [1, 1]
+    assert pure_ints("930,00 | 730,004") == []
+    assert tight_part("a | b # 1") == "1" and tight_part("nur voll") is None
+
+
+def _menge_ok(text):
+    dr, g = make_drawer(field_text=lambda n: "")
+    dr.field_reader = lambda img: text
+    dr.snap = lambda rect: object()
+    return dr._field_ok(10, 10, 1.0, integer=True)
+
+
+def test_menge_ganzzahl_modus():
+    assert _menge_ok("730,00 1 # 1") is True                  # '1' sicher gelesen
+    assert _menge_ok("930,00 | 730,004 # ") is None           # nur Müll von außerhalb -> unlesbar
+    assert _menge_ok("930,00 | 730,004") is False             # ohne '#' zählt alles als Feld
+    assert _menge_ok("930,00 # 3") is False                   # im Feld steht eine 3
+    assert _menge_ok("30189.25 # 30189.25") is False          # Preis verirrt sich ins Mengenfeld
