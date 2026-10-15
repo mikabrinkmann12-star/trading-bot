@@ -542,3 +542,32 @@ def test_menge_ganzzahl_modus():
     assert _menge_ok("930,00 | 730,004") is False             # ohne '#' zählt alles als Feld
     assert _menge_ok("930,00 # 3") is False                   # im Feld steht eine 3
     assert _menge_ok("30189.25 # 30189.25") is False          # Preis verirrt sich ins Mengenfeld
+
+
+def test_breakeven_fenster_bleibt_offen_bricht_ab_und_schliesst_mit_esc():
+    steps = [{"punkt": [100, 100], "doppel": False, "tippe": None},
+             {"punkt": [900, 300], "doppel": False, "tippe": "entry"},
+             {"punkt": [1000, 700], "doppel": False, "tippe": None}]
+    cfg = {"ablaeufe": {"breakeven": steps}, "chart": CHART_RECT}
+    g = FakeGuardIn()
+    state = {"open": False}
+    orig_click = g.click
+
+    def click(x, y, what, double=False):
+        orig_click(x, y, what, double)
+        if (x, y) == (100, 100):
+            state["open"] = True                      # öffnet; OK (1000,700) schließt NICHT
+
+    g.click = click
+    np = pytest.importorskip("numpy")
+    dr = Drawer(cfg, g, sleep=lambda s: None,
+                snap=lambda rect: np.full((rect[3], rect[2], 3), 200 if state["open"] else 30,
+                                          dtype=np.uint8),
+                field_reader=lambda img: "29000.00", clock=iter(range(0, 10000, 1)).__next__)
+    dr.save_img = lambda img, tag: tag
+    with pytest.raises(SafetyError, match="abgelehnt"):
+        dr.play("breakeven", {"entry": 29000.0}, final_esc=False, close_check="fatal",
+                strict=("entry",))
+    ok_i = g.calls.index(("click", 1000, 700))
+    after = [c for c in g.calls[ok_i:] if c == ("press", "esc")]
+    assert len(after) == 2                               # Esc zweimal: Fenster wird geschlossen

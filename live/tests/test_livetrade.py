@@ -32,6 +32,8 @@ class FakeActions:
 
     def breakeven(self, entry):
         self.calls.append(("breakeven", entry))
+        if self.fail == "breakeven":
+            raise RuntimeError("TradingView hat den Stop abgelehnt")
 
     def close(self):
         self.calls.append(("close",))
@@ -438,3 +440,54 @@ def test_zwoelf_uhr_kurs_nicht_lesbar_nimmt_den_bekannten():
     m2, acts2 = _in_trade_long(lambda: (_ for _ in ()).throw(RuntimeError("OCR")))
     m2.on_time(T(12, 0, 5), 28900.0)
     assert acts2.calls[-1] == ("close",)
+
+
+def _in_trade(fail=None):
+    m, acts = armed_manager()
+    acts.fail = fail
+    for s in (0, 1):
+        tick(m, T(10, 35, s), 29017, 29017.75, 28960, 28965)
+    assert m.state == IN_TRADE
+    return m, acts
+
+
+def test_breakeven_abgelehnt_urspruenglicher_stop_bleibt_kein_zweiter_versuch():
+    m, acts = _in_trade(fail="breakeven")
+    m.on_time(T(12, 0, 5), 29005.0)
+    assert m.be_failed and not m.breakeven and m.sl == pytest.approx(28874.75)
+    assert "Break-even fehlgeschlagen" in m.reason
+    m.on_time(T(12, 0, 30), 29010.0)
+    m.on_time(T(12, 5, 0), 29010.0)
+    assert [c[0] for c in acts.calls].count("breakeven") == 1       # nur EIN Versuch
+    assert m.state == IN_TRADE
+
+
+def test_breakeven_abgelehnt_schliesst_trotzdem_um_1555():
+    m, acts = _in_trade(fail="breakeven")
+    m.on_time(T(12, 0, 5), 29005.0)
+    m.on_time(T(15, 55, 1), 29050.0)
+    assert acts.calls[-1] == ("close",) and m.result == CLOSED_LATE
+
+
+def test_breakeven_abgelehnt_ursprunglicher_stop_zaehlt_als_stop():
+    m, acts = _in_trade(fail="breakeven")
+    m.on_time(T(12, 0, 5), 29005.0)
+    for s in (0, 1):
+        tick(m, T(13, 0, s), 28900, 28900, 28870.0, 28880)         # Stop 28874.75 getroffen
+    assert m.result == STOP and m.r == -1.0
+
+
+def test_sequenz_breakeven_alleine_rechnet_mit_der_angegebenen_richtung():
+    from livebot.runner import run_sequence
+
+    class A:
+        def __init__(self):
+            self.be = []
+
+        def breakeven(self, v):
+            self.be.append(v)
+    a = A()
+    run_sequence(a, 30000.0, ["breakeven"], say=lambda s: None, sleep=lambda s: None, side="short")
+    run_sequence(a, 30000.0, ["breakeven"], say=lambda s: None, sleep=lambda s: None, side="long")
+    run_sequence(a, 30000.0, ["breakeven"], say=lambda s: None, sleep=lambda s: None)
+    assert a.be == [30020.0, 29980.0, 29980.0]          # Short über dem Kurs, Long darunter

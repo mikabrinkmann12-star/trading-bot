@@ -48,6 +48,7 @@ class TradeManager:
         self.entry = self.stop = self.target = self.risk = None
         self.sl: float | None = None          # aktueller Stop (nach Break-even = Entry)
         self.breakeven = False
+        self.be_failed = False                # Break-even-Versuch gescheitert (kein 2. Versuch)
         self.fill_time: str | None = None
         self.fill_price: float | None = None
         self.exit_time: str | None = None
@@ -192,15 +193,21 @@ class TradeManager:
 
     def _time_rules(self, sec: float, c: float):
         long = self.direction == LONG
-        if not self.breakeven and sec >= BE_TIME:
+        if not self.breakeven and not self.be_failed and sec >= BE_TIME:
             c = self._fresh_price(c)                     # direkt vor der Entscheidung neu lesen
             in_profit = c > self.entry + EPS if long else c < self.entry - EPS
             if in_profit:
                 try:
                     self.actions.breakeven(self.entry)
                 except Exception as exc:
-                    self.post(f"Break-even fehlgeschlagen ({exc}) - bitte SL in TradingView "
-                              f"selbst auf {fmt(self.entry)} setzen!", "error")
+                    # TradingView hat den Stop abgelehnt o.ä.: der URSPRÜNGLICHE Stop gilt weiter,
+                    # kein zweiter Versuch; um 15:55 wird trotzdem geschlossen.
+                    self.be_failed = True
+                    self.reason = (f"12:00 im Plus, aber Break-even fehlgeschlagen ({exc}). "
+                                   f"Ursprünglicher Stop {fmt(self.sl)} bleibt - bitte in "
+                                   f"TradingView prüfen! Schluss spätestens 15:55.")
+                    self.post(self.reason, "error")
+                    return
                 self.breakeven, self.sl = True, self.entry
                 self.reason = (f"12:00 im Plus -> Stop auf Break-even {fmt(self.entry)}. "
                                f"Läuft bis Ziel {fmt(self.target)} oder spätestens 15:55.")
@@ -208,7 +215,7 @@ class TradeManager:
             else:
                 self._close(sec, c, CLOSED_NOON, "12:00 nicht im Plus -> Position geschlossen.")
             return
-        if self.breakeven and sec >= CLOSE_TIME:
+        if (self.breakeven or self.be_failed) and sec >= CLOSE_TIME:
             self._close(sec, c, CLOSED_LATE, "15:55 erreicht -> Position geschlossen.")
 
     def _fresh_price(self, fallback: float) -> float:

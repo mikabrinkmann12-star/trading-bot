@@ -118,6 +118,8 @@ python live.py --auswertung
 | `"paper_wartezeit"` | `20` | so lange wartet die Paper-Sperre, wenn der Kontoname nicht lesbar ist (z. B. Meldung darüber) |
 
 ## Wenn was nicht geht
+- **Break-even abgelehnt** (z. B. „Die Stop-Loss-Order muss oberhalb/unterhalb des Preises liegen“): Der Bot schließt das Fenster mit Esc, meldet es **rot** und lässt den **ursprünglichen Stop** stehen. Er versucht es **nicht noch einmal** und schließt die Position trotzdem spätestens um 15:55.
+- **`--aktion-test breakeven` allein:** Er fragt, ob die offene Position **Long (l)** oder **Short (s)** ist, und setzt den Test-Stop darunter bzw. darüber. Bei `--aktion-test alle` weiß er es selbst.
 - **`trades.csv` in Excel offen:** Der Bot läuft weiter. Das Ergebnis steht dann vorerst in `trades_nachtragen.csv` und wird beim nächsten Mal automatisch in `trades.csv` übernommen.
 - **„Es ist schon … NY“:** zu spät gestartet. Siehe oben, dann `--probelauf`.
 - **„Einstellungsdialog ist nicht aufgegangen“:** Schau in `logs\aktionen.log` nach der Zeile „Dialog-Prüfung: Veränderung … %“. In `logs\` liegen dann zwei Bilder `ocr_zeichnen_dialog_vorher_*.png` und `ocr_zeichnen_dialog_nachher_*.png`. Schick sie mir, falls es wieder passiert. Daran sehe ich, ob die Box verfehlt wurde oder der Dialog nur schwer zu erkennen war.

@@ -352,11 +352,11 @@ SEQUENZEN = {
 
 
 def run_sequence(actions, price: float, steps: list[str], *, say=print, sleep=time.sleep,
-                 pause: float = 4.0) -> bool:
+                 pause: float = 4.0, side: str | None = None) -> bool:
     """Spielt die Schritte nacheinander ab. Beispielwerte um den aktuellen Kurs:
     Long: SL -50 / TP +50, Break-even-SL -20; Short spiegelbildlich. Bricht beim ersten
-    Fehler ab (dann ist unklar, was offen ist)."""
-    side = None
+    Fehler ab (dann ist unklar, was offen ist). side = 'long'/'short', falls die Position
+    schon offen ist (sonst kennt der Test sie nur aus kaufen/verkaufen davor)."""
     for i, name in enumerate(steps, 1):
         say(f"[{i}/{len(steps)}] {name} ...")
         try:
@@ -428,7 +428,13 @@ def run_action_test(action: str, out_dir: str, cfg_path: str = "config.json",
     time.sleep(5)
     actions = LiveActions(cfg, Drawer(cfg, guard, post=lambda t: print(f"    {t}")), paper)
     paper.dismiss_fn = actions.dismiss_messages
-    ok = run_sequence(actions, price, steps)
+    side = None
+    if steps == ["breakeven"]:                  # Position schon offen: Richtung erfragen
+        while side is None:
+            answer = confirm("Ist die offene Position Long oder Short? (l/s): ").strip().lower()
+            side = {"l": "long", "long": "long", "s": "short", "short": "short"}.get(answer)
+        print(f"Break-even-Stop zum Test: {'unter' if side == 'long' else 'über'} dem Kurs.")
+    ok = run_sequence(actions, price, steps, side=side)
     journal.log_action(f"Aktions-Test {action}: {'OK' if ok else 'FEHLER'}")
     print("Fertig." if ok else "Mit Fehler beendet.")
     return 0 if ok else 1

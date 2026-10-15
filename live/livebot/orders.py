@@ -59,7 +59,7 @@ class LiveActions:
         self.paper.check("Break-even")
         self.around(lambda: self.drawer.play("breakeven", {"entry": entry}, final_esc=False,
                                              pause=self._order_pause(),
-                                             decimal=self._dec(), close_check="warn",
+                                             decimal=self._dec(), close_check="fatal",
                                              strict=("entry",),
                                              confirm_pause=self._confirm_pause()))
 

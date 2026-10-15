@@ -484,9 +484,10 @@ class Drawer:
             if closes_dialog:
                 self.post("Prüfe, ob das Fenster zu ist ...")
                 if not self._wait_for_change(dialog_rect, before, 3.0):
-                    msg = "OK wurde evtl. nicht getroffen - Fenster ist noch offen."
+                    msg = ("OK wurde evtl. nicht getroffen oder TradingView hat den Wert abgelehnt - "
+                           "Fenster ist noch offen.")
                     if close_check == "fatal":
-                        self._abort(msg + " Box evtl. ohne die richtigen Werte.")
+                        self._abort(msg + " Es wurde evtl. NICHTS übernommen.")
                     self.post(msg + " Bitte kurz in TradingView prüfen.")
                     self.log(msg)
 
