@@ -113,11 +113,13 @@ def strip_lines(gray):
     return out
 
 
-def tight_crop(img):
-    """Nur den Textblock ausschneiden, der dem Klickpunkt (Bildmitte) am nächsten liegt - ohne
-    Feldrahmen, Symbole wie das Pfeil-Symbol 'Werte umschalten', Zahlen/Wörter rechts davon und
-    fremden Text links neben dem Feld. Dann groß skalieren, schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest Tesseract sonst fast nie. -> Bild
-    oder None."""
+def tight_crops(img, max_blocks: int = 3) -> list:
+    """Textblöcke im Feld einzeln ausschneiden, der Reihe nach: zuerst der, der dem Klickpunkt
+    (Bildmitte) am nächsten liegt. Feldrahmen fallen weg, ebenso FARBIGER Text (z.B. blaue
+    Preise neben dem Feld - Feldtext ist schwarz/grau). Jeder Block wird groß skaliert,
+    schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest Tesseract sonst fast nie.
+    Symbole (z.B. das Pfeil-Symbol) liefern beim Lesen keine Zahl und werden übersprungen.
+    -> Liste von Bildern (evtl. leer)."""
     import cv2
     import numpy as np
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -126,13 +128,19 @@ def tight_crop(img):
     dark = g < 140
     dark[dark.mean(axis=1) > 0.4, :] = False              # waagerechte Rahmenlinien
     dark[:, dark.mean(axis=0) > 0.6] = False              # senkrechte Rahmenlinien
-    n, _lab, stats, cent = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
+    n, lab, stats, cent = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
     h = g.shape[0]
+    spread = img.astype(np.int16).max(axis=2) - img.astype(np.int16).min(axis=2)
+
+    def colored(i):                                         # bunte Schrift = nicht im Feld
+        return float(spread[lab == i].mean()) > 60
+
     comps = sorted((i for i in range(1, n)
                     if stats[i, cv2.CC_STAT_HEIGHT] >= 4
-                    and abs(cent[i][1] - h / 2) <= h * 0.3), key=lambda i: stats[i, 0])
+                    and abs(cent[i][1] - h / 2) <= h * 0.3 and not colored(i)),
+                   key=lambda i: stats[i, 0])
     if not comps:
-        return None
+        return []
     gap_max = max(14, 1.6 * max(stats[i, cv2.CC_STAT_HEIGHT] for i in comps))
     clusters = [[comps[0]]]
     for i in comps[1:]:                       # zusammenhängender Text: Lücken < gap_max
@@ -148,7 +156,11 @@ def tight_crop(img):
         lo = min(stats[i, 0] for i in cl)
         hi = max(stats[i, 0] + stats[i, 2] for i in cl)
         return 0 if lo <= mid <= hi else min(abs(lo - mid), abs(hi - mid))
-    keep = min(clusters, key=dist)
+    return [_crop_cluster(g, stats, cl) for cl in sorted(clusters, key=dist)[:max_blocks]]
+
+
+def _crop_cluster(g, stats, keep):
+    import cv2
     x1 = min(stats[i, 0] for i in keep)
     y1 = min(stats[i, 1] for i in keep)
     x2 = max(stats[i, 0] + stats[i, 2] for i in keep)
@@ -175,12 +187,15 @@ def _default_field_reader(img) -> str:
         if numbers_in(text) and text not in texts:
             texts.append(text)
     try:
-        tight = tight_crop(img)
+        blocks = tight_crops(img)
     except Exception:
-        tight = None
+        blocks = []
     only_field = ""
-    if tight is not None:
-        only_field = pytesseract.image_to_string(tight, config=f"--psm 7 {wl}").strip()
+    for block in blocks:        # Textblöcke nach Nähe zum Klickpunkt; Symbole liefern keine Zahl
+        only_field = pytesseract.image_to_string(block, config=f"--psm 7 {wl}").strip()
+        if numbers_in(only_field):
+            break
+        only_field = ""
     out = " | ".join(texts)
     return f"{out} # {only_field}"
 
@@ -216,6 +231,14 @@ EXPECT_LABEL = {("breakeven", "entry"): "stop",
                 ("kaufen", "stop"): "stop", ("verkaufen", "stop"): "stop",
                 ("kaufen", "ziel"): "take", ("verkaufen", "ziel"): "take"}
 LABEL_NAMES = {"stop": "Stop-Loss", "take": "Take-Profit"}
+FIELD_NAMES = {"menge": "Menge", "entry": "Entry-Preis", "stop": "Stop-Loss", "ziel": "Take-Profit"}
+
+
+def field_name(flow: str, key: str) -> str:
+    """Feldname für Meldungen ('entry' heißt beim Break-even: SL-Feld)."""
+    if flow == "breakeven" and key == "entry":
+        return "SL-Feld (Break-even)"
+    return FIELD_NAMES.get(key, key)
 
 
 def label_kind(text: str) -> str | None:
@@ -372,6 +395,10 @@ class Drawer:
             return None
         return j
 
+    def _fn(self, key: str) -> str:
+        """Deutscher Feldname für Meldungen."""
+        return field_name(getattr(self, "_flow", ""), key)
+
     def _field_img(self, x: int, y: int):
         if self.snap is None:
             return None
@@ -386,7 +413,7 @@ class Drawer:
         Kontrolle: Wird das Feld dadurch BLASSER, war es vorher aktiv (die Zahl wurde nur falsch
         gelesen) -> sofort zurückschalten. -> True = Schalter bleibt umgeschaltet."""
         tx, ty = steps[toggle]["punkt"]
-        self.post(f"{key}: Zahl nicht übernommen - schalte den Schalter davor nochmal um ...")
+        self.post(f"{self._fn(key)}: Zahl nicht übernommen - schalte den Schalter davor nochmal um ...")
         before = self._field_img(x, y)
         self.guard.click(tx, ty, f"{side} Schritt {toggle + 1} (Schalter nochmal)")
         self.sleep(0.5)
@@ -396,7 +423,7 @@ class Drawer:
         cb, ca = ink_contrast(before), ink_contrast(after)
         self.log(f"Schalter-Kontrolle '{key}': Schrift-Kontrast vorher {cb:.0f}, nachher {ca:.0f}")
         if ca < cb * 0.75:
-            self.post(f"{key}: Feld ist dadurch blasser (gesperrt) geworden - Schalter zurück.")
+            self.post(f"{self._fn(key)}: Feld ist dadurch blasser (gesperrt) geworden - Schalter zurück.")
             self.guard.click(tx, ty, f"{side} Schritt {toggle + 1} (Schalter zurück)")
             self.sleep(0.5)
             return False
@@ -409,7 +436,7 @@ class Drawer:
         for fx, fy, key, value, text in typed:
             ok = self._field_ok(fx, fy, value, integer=(key == "menge"))
             if ok is False or (ok is None and key in strict):
-                self._abort(f"Letzte Kontrolle: Im Feld '{key}' steht nicht mehr sicher {text} - "
+                self._abort(f"Letzte Kontrolle: Im Feld '{self._fn(key)}' steht nicht mehr sicher {text} - "
                             f"abgebrochen, es wurde NICHT bestätigt.")
 
     def _check_label(self, name: str, key: str, x: int, y: int):
@@ -429,11 +456,11 @@ class Drawer:
         self.log(f"Beschriftung über '{key}': {text!r} -> {kind or 'unklar'} "
                  f"(erwartet {expected})")
         if kind is None:
-            self.post(f"{key}: Beschriftung über dem Feld nicht lesbar - prüfe nur die Zahl.")
+            self.post(f"{self._fn(key)}: Beschriftung über dem Feld nicht lesbar - prüfe nur die Zahl.")
             return
         if kind != expected:
             self._diag("beschriftung", img, text)
-            self._abort(f"Über dem Feld '{key}' steht {LABEL_NAMES[kind]}, erwartet wird "
+            self._abort(f"Über dem Feld '{self._fn(key)}' steht {LABEL_NAMES[kind]}, erwartet wird "
                         f"{LABEL_NAMES[expected]}. Die Felder liegen anders als bei der Aufnahme - "
                         f"bitte '{name}' neu aufnehmen (Position MIT TP und SL). Nichts getippt.")
 
@@ -485,6 +512,7 @@ class Drawer:
                      (z.B. TP/SL bei Orders). Sonst Abbruch VOR dem Bestätigen.
         confirm_pause: Wartezeit nach dem Bestätigen-Klick (= erster Klick nach dem letzten
                      Tipp-Feld), bevor der nächste Klick kommt (z.B. das X zum Schließen)."""
+        self._flow = name
         steps = (self.cfg.get("ablaeufe") or {}).get(name)
         if not steps:
             raise SafetyError(f"Kein Ablauf '{name}' aufgenommen "
@@ -578,8 +606,8 @@ class Drawer:
                 if (not first_typed and ok is not True
                         and (dialog_level == "schwach"
                              or (dialog_level == "offen" and ok is False))):
-                    self._abort("Fenster nur schwach erkannt und die Zahl steht nicht im Feld - "
-                                "vermutlich nichts geöffnet. Abgebrochen.")
+                    self._abort("Die Zahl steht nach dem Tippen nicht im Feld - "
+                                "abgebrochen, nichts bestätigt.")
                 first_typed = True
                 toggle = self._toggle_before(steps, i, first_type, create, dbl)
                 tries = 0
@@ -587,14 +615,14 @@ class Drawer:
                 while ok is not True and tries < 2:
                     tries += 1
                     if ok is None and key not in strict:
-                        self.post(f"{key}: Feld nicht lesbar - kann es nicht prüfen.")
+                        self.post(f"{self._fn(key)}: Feld nicht lesbar - kann es nicht prüfen.")
                         break
                     if tries == 1 and toggle is not None:
                         # Typischer Fall: Schalter (z.B. Take Profit) war schon AN und wurde
                         # durch den aufgenommenen Klick AUSgeschaltet -> Feld gesperrt.
                         must_change = self._fix_toggle(steps, toggle, x, y, key, side)
                     else:
-                        self.post(f"{key}: Zahl stimmt nicht/unlesbar - tippe nochmal ...")
+                        self.post(f"{self._fn(key)}: Zahl stimmt nicht/unlesbar - tippe nochmal ...")
                     # Bleibt der Schalter umgeschaltet, muss das Nachtippen BEWEISBAR wirken:
                     # stand die Zahl schon vorher im Feld, könnte es ein gesperrtes Feld sein.
                     had = (self._field_ok(x, y, value, integer=(key == "menge")) is True
@@ -609,7 +637,7 @@ class Drawer:
                                  f"Feld evtl. gesperrt, nicht sicher.")
                         ok = False
                 if ok is False or (ok is None and key in strict):
-                    self._abort(f"Im Feld '{key}' steht nicht sicher {text} - abgebrochen, "
+                    self._abort(f"Im Feld '{self._fn(key)}' steht nicht sicher {text} - abgebrochen, "
                                 f"es wurde NICHT bestätigt.")
                 typed.append((x, y, key, value, text))
             self.sleep(pause)

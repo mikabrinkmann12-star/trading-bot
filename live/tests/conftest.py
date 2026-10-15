@@ -6,6 +6,8 @@ import os
 import shutil
 from pathlib import Path
 
+import pytest
+
 
 def _find_tesseract():
     candidates = []
@@ -29,3 +31,10 @@ if shutil.which("tesseract") is None:
             pytesseract.pytesseract.tesseract_cmd = _exe
         except ImportError:
             pass
+
+
+@pytest.fixture(autouse=True)
+def _logs_nicht_im_bot_ordner(tmp_path, monkeypatch):
+    """Jeder Test läuft in einem eigenen leeren Ordner - sonst landen Test-Bilder in deinem
+    echten logs\\-Ordner und vermischen sich mit echten Diagnosebildern."""
+    monkeypatch.chdir(tmp_path)

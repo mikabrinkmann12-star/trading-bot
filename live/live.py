@@ -94,7 +94,10 @@ def main(argv=None) -> int:
         return run_live(args.ausgabe, args.config, orders=not args.ohne_orders,
                         clock=SimClock(args.sim_start, args.sim_faktor),
                         sim_factor=args.sim_faktor)
-    return run_live(args.ausgabe, args.config, orders=not args.ohne_orders)
+    out = args.ausgabe if args.ausgabe != "." else ("ohne_orders" if args.ohne_orders else ".")
+    if out == "ohne_orders":
+        print("Ohne Orders: Ergebnisse kommen in den Ordner 'ohne_orders' (nicht in trades.csv).")
+    return run_live(out, args.config, orders=not args.ohne_orders)
 
 
 if __name__ == "__main__":

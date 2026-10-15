@@ -38,6 +38,19 @@ class SimClock:
 LATEST_START = 9 * 3600 + 4 * 60      # danach fehlt die 9:00-Kerze -> Strategie nicht rechenbar
 
 
+def german_time(now: datetime, hour: int, minute: int) -> str:
+    """'hh:mm NY' an diesem Tag in deutscher Zeit (USA und Europa stellen die Uhr an
+    verschiedenen Tagen um - meist 6 Stunden Unterschied, ein paar Tage im Jahr nur 5)."""
+    try:
+        from zoneinfo import ZoneInfo
+        ny = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if ny.tzinfo is None:
+            ny = ny.replace(tzinfo=ZoneInfo("America/New_York"))
+        return f"das ist {ny.astimezone(ZoneInfo('Europe/Berlin')):%H:%M} deutscher Zeit"
+    except Exception:
+        return "meist 15:04 deutscher Zeit"
+
+
 def start_problem(now: datetime) -> str | None:
     """Warum ein echter Live-Lauf jetzt keinen Sinn hat (oder None)."""
     sec = sec_of_day(now)
@@ -45,8 +58,8 @@ def start_problem(now: datetime) -> str | None:
         return "Heute ist Wochenende (NY) - kein Handelstag."
     if sec > LATEST_START:
         return (f"Es ist schon {now:%H:%M} NY. Der Bot braucht ALLE Kerzen ab 9:00 NY und muss "
-                f"deshalb vor 9:04 NY laufen (normalerweise 15:04 deutscher Zeit; vom 25.10. "
-                f"bis 31.10. schon 14:04). Heute geht nur noch:  python live.py --probelauf")
+                f"deshalb vor 9:04 NY laufen ({german_time(now, 9, 4)}). Heute geht nur noch:  "
+                f"python live.py --probelauf")
     return None
 
 

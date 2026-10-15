@@ -49,9 +49,12 @@ ANLEITUNG = {
   Am besten sind Take Profit und Stop Loss vor dem Vormachen AUS. Sind sie später schon AN,
   merkt der Bot das (Feld bleibt gesperrt/blass) und schaltet selbst richtig.
   (In der Paper-Übung darfst du dabei wirklich kaufen - danach die Position selbst schließen.)""",
-    "breakeven": """  1. Unten im HANDELSPANEL bei der offenen Position auf 'Bearbeiten' (Stift) klicken
+    "breakeven": """  VORHER: Es muss eine Position MIT Take Profit UND Stop Loss offen sein (so wie der Bot sie
+  anlegt) - sonst liegt das SL-Feld später an einer anderen Stelle (dann ist TP oben, SL unten).
+  1. Unten im HANDELSPANEL bei der offenen Position auf 'Bearbeiten' (Stift) klicken
      - NICHT im Chart auf die SL-Linie: die liegt jeden Tag woanders.
-  2. Klick ins SL-PREISFELD -> F6 (dort tippt der Bot später den Entry ein)
+  2. Klick ins STOP-LOSS-Preisfeld (das UNTERE, nicht Take Profit) -> F6
+     (dort tippt der Bot später den Entry ein)
   3. Klick auf Ändern/Bestätigen (und ggf. das X, falls das Fenster offen bleibt)""",
     "schliessen": """  1. Unten im HANDELSPANEL bei der offenen Position auf 'Schließen' (X) klicken
      - NICHT das X an der Positionslinie im Chart: die liegt jeden Tag woanders.
@@ -257,6 +260,10 @@ Aufnahme '{direction}'. Mach es jetzt EINMAL in TradingView vor:
     for warn in price_dependent_clicks(cfg, direction):
         print(f"ACHTUNG: {warn} - Linien im Chart liegen jeden Tag woanders. Besser über das "
               f"Handelspanel unten neu aufnehmen.")
+    if direction == "meldungen":
+        print(f"Gespeichert in {cfg_path}. Diesen Ablauf spielt der Bot nur ab, wenn eine Meldung "
+              f"den Kontonamen verdeckt - einzeln testen ist nicht nötig.")
+        return True
     test = (f"python live.py --zeichnen-test {direction}" if direction in ("long", "short")
             else f"python live.py --aktion-test {direction}")
     print(f"Gespeichert in {cfg_path}. Testen mit:  {test}")

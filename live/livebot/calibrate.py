@@ -23,8 +23,8 @@ STEPS = [
      "Schritt 3/5: Ziehe ein Rechteck um die PREISACHSE rechts (die Zahlen-Spalte),\n"
      "von ganz oben bis ganz unten. Dann Enter."),
     ("rect", "konto",
-     "Schritt 4/5: Ziehe ein Rechteck um den KONTONAMEN im Handelspanel (da muss 'Paper Trading'\n"
-     "stehen). Ohne 'Paper' darin handelt der Bot NIE. Dann Enter."),
+     "Schritt 4/5: Ziehe ein Rechteck um den KONTONAMEN im Handelspanel (dort steht 'Paper Trading'\n"
+     "bzw. auf Deutsch 'Papierhandel'). Ohne das handelt der Bot NIE. Dann Enter."),
     ("point", "parkplatz",
      "Schritt 5/5: Klicke auf eine freie Stelle AUSSERHALB des Charts (z.B. Watchlist-Rand),\n"
      "wo die Maus parken darf, ohne etwas auszulösen. Dann Enter."),
@@ -170,7 +170,7 @@ def run(cfg_path: str = "config.json", steps=STEPS, countdown: int = 5) -> bool:
             text = read_account(cfg["konto"])
             print(f"\nKontoname gelesen: {text!r}")
             print("  -> Paper-Konto erkannt, Bot darf handeln." if is_paper(text) else
-                  "  -> ACHTUNG: kein 'Paper' erkannt - der Bot wird NICHT handeln. "
+                  "  -> ACHTUNG: weder 'Paper Trading' noch 'Papierhandel' erkannt - der Bot wird NICHT handeln. "
                   "Rechteck enger um den Kontonamen ziehen.")
         except Exception as exc:
             print(f"\nKontoname nicht lesbar: {exc}")

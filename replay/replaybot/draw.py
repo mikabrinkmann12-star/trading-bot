@@ -102,11 +102,13 @@ def strip_lines(gray):
     return out
 
 
-def tight_crop(img):
-    """Nur den Textblock ausschneiden, der dem Klickpunkt (Bildmitte) am nächsten liegt - ohne
-    Feldrahmen, Symbole wie das Pfeil-Symbol 'Werte umschalten', Zahlen/Wörter rechts davon und
-    fremden Text links neben dem Feld. Dann groß skalieren, schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest Tesseract sonst fast nie. -> Bild
-    oder None."""
+def tight_crops(img, max_blocks: int = 3) -> list:
+    """Textblöcke im Feld einzeln ausschneiden, der Reihe nach: zuerst der, der dem Klickpunkt
+    (Bildmitte) am nächsten liegt. Feldrahmen fallen weg, ebenso FARBIGER Text (z.B. blaue
+    Preise neben dem Feld - Feldtext ist schwarz/grau). Jeder Block wird groß skaliert,
+    schwarz auf weiß. Einzelne Ziffern wie die '1' im Mengenfeld liest Tesseract sonst fast nie.
+    Symbole (z.B. das Pfeil-Symbol) liefern beim Lesen keine Zahl und werden übersprungen.
+    -> Liste von Bildern (evtl. leer)."""
     import cv2
     import numpy as np
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -115,13 +117,19 @@ def tight_crop(img):
     dark = g < 140
     dark[dark.mean(axis=1) > 0.4, :] = False              # waagerechte Rahmenlinien
     dark[:, dark.mean(axis=0) > 0.6] = False              # senkrechte Rahmenlinien
-    n, _lab, stats, cent = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
+    n, lab, stats, cent = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
     h = g.shape[0]
+    spread = img.astype(np.int16).max(axis=2) - img.astype(np.int16).min(axis=2)
+
+    def colored(i):                                         # bunte Schrift = nicht im Feld
+        return float(spread[lab == i].mean()) > 60
+
     comps = sorted((i for i in range(1, n)
                     if stats[i, cv2.CC_STAT_HEIGHT] >= 4
-                    and abs(cent[i][1] - h / 2) <= h * 0.3), key=lambda i: stats[i, 0])
+                    and abs(cent[i][1] - h / 2) <= h * 0.3 and not colored(i)),
+                   key=lambda i: stats[i, 0])
     if not comps:
-        return None
+        return []
     gap_max = max(14, 1.6 * max(stats[i, cv2.CC_STAT_HEIGHT] for i in comps))
     clusters = [[comps[0]]]
     for i in comps[1:]:                       # zusammenhängender Text: Lücken < gap_max
@@ -137,7 +145,11 @@ def tight_crop(img):
         lo = min(stats[i, 0] for i in cl)
         hi = max(stats[i, 0] + stats[i, 2] for i in cl)
         return 0 if lo <= mid <= hi else min(abs(lo - mid), abs(hi - mid))
-    keep = min(clusters, key=dist)
+    return [_crop_cluster(g, stats, cl) for cl in sorted(clusters, key=dist)[:max_blocks]]
+
+
+def _crop_cluster(g, stats, keep):
+    import cv2
     x1 = min(stats[i, 0] for i in keep)
     y1 = min(stats[i, 1] for i in keep)
     x2 = max(stats[i, 0] + stats[i, 2] for i in keep)
@@ -164,12 +176,15 @@ def _default_field_reader(img) -> str:
         if numbers_in(text) and text not in texts:
             texts.append(text)
     try:
-        tight = tight_crop(img)
+        blocks = tight_crops(img)
     except Exception:
-        tight = None
+        blocks = []
     only_field = ""
-    if tight is not None:
-        only_field = pytesseract.image_to_string(tight, config=f"--psm 7 {wl}").strip()
+    for block in blocks:        # Textblöcke nach Nähe zum Klickpunkt; Symbole liefern keine Zahl
+        only_field = pytesseract.image_to_string(block, config=f"--psm 7 {wl}").strip()
+        if numbers_in(only_field):
+            break
+        only_field = ""
     out = " | ".join(texts)
     return f"{out} # {only_field}"
 

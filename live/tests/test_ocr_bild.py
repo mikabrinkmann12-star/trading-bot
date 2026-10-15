@@ -137,8 +137,11 @@ def test_mengenfeld_mit_fremdtext_links_und_symbol(value):
     d.text((64, 6), value, font=font, fill=(30, 30, 30))
     d.rectangle((150, 10, 162, 20), outline=(110, 110, 110))        # Symbol
     text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
-    assert tight_part(text).strip() == value, text
-    assert int(value) in pure_ints(text), text
+    # Sicherheit: nie Fremdtext/falsche Zahl als Feldinhalt. Eine einzelne Ziffer in fremder
+    # Schrift (z.B. Arial unter Windows) darf auch mal unlesbar sein -> 'nicht lesbar', kein
+    # Abbruch. Die exakte '1' prüft test_mengenfeld_echter_ausschnitt_vom_nutzer.
+    assert tight_part(text).strip() in (value, ""), text
+    assert not [n for n in pure_ints(tight_part(text)) if n != int(value)], text
 
 
 @pytest.mark.parametrize("label,kind", [("Stop-Loss Preis", "stop"), ("Take Profit Preis", "take"),
@@ -157,3 +160,20 @@ def test_beschriftung_ueber_dem_feld_lesen(label, kind, dark):
     d.ellipse((235, 8, 255, 26), outline=(120, 120, 120))          # Schalter
     text = _default_label_reader(np.array(img)[:, :, ::-1].copy())
     assert label_kind(text) == kind, text
+
+
+def test_duenne_eins_wie_arial_symbol_naeher_an_der_mitte():
+    """Fall vom Windows-PC des Nutzers (Arial): die '1' ist nur ein Strich, das Symbol liegt
+    näher am Klickpunkt als die Zahl, links steht blauer Fremdtext."""
+    from livebot.draw import _default_field_reader, tight_part
+    font = ImageFont.truetype(FONT, 13)
+    img = Image.new("RGB", (220, 32), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.text((0, 6), "930,00", font=font, fill=(30, 60, 170))       # blauer Fremdtext
+    d.rounded_rectangle((56, 2, 219, 26), radius=5, outline=(200, 200, 200))
+    d.line((64, 9, 64, 20), fill=(30, 30, 30), width=2)            # schmale '1'
+    d.line((61, 12, 64, 9), fill=(30, 30, 30), width=1)
+    d.rectangle((128, 10, 140, 20), outline=(110, 110, 110))        # Symbol nah an der Mitte
+    text = _default_field_reader(np.array(img)[:, :, ::-1].copy())
+    assert "930" not in tight_part(text), text                     # Fremdtext nie als Feldinhalt
+    assert tight_part(text).strip() in ("1", ""), text             # nie eine FALSCHE Zahl

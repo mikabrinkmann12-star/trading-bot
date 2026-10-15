@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 import bot
@@ -60,7 +62,8 @@ def test_leer(tmp_path):
 
 def test_ende_zu_ende(tmp_path, capsys):
     for day in ("2026-09-25", "2026-09-14"):
-        assert bot.main(["--csv", f"tests/data/{day}.csv", "--ausgabe", str(tmp_path)]) == 0
+        assert bot.main(["--csv", str(Path(__file__).parent / "data" / f"{day}.csv"),
+                         "--ausgabe", str(tmp_path)]) == 0
     assert bot.main(["--auswertung", "--ausgabe", str(tmp_path)]) == 0
     s = compute(load_trades(tmp_path / "trades.csv"))
     assert (s["trades"], s["gewinner"], s["summe_r"]) == (2, 1, pytest.approx(1.0))

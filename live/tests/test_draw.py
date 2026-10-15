@@ -277,7 +277,7 @@ def test_schwach_erkannt_und_zahl_steht_im_feld_laeuft_durch():
 
 def test_schwach_erkannt_aber_zahl_nicht_im_feld_bricht_ab():
     dr, g = make_white(0.01, field_text=lambda n: "")
-    with pytest.raises(SafetyError, match="schwach"):
+    with pytest.raises(SafetyError, match="steht nach dem Tippen nicht im Feld"):
         dr.draw("long", 30845.0, 30763.5, 31008.0, anchor=(1333, 555))
     assert len([c for c in g.calls if c[0] == "type"]) == 1    # nur der erste Versuch
 
@@ -506,7 +506,7 @@ def test_gesperrtes_feld_mit_alter_richtiger_zahl_wird_nicht_bestaetigt():
 def test_verstellte_menge_wird_vor_dem_bestaetigen_erkannt():
     """Tippen in ein gesperrtes Feld landet in der Menge -> letzte Kontrolle stoppt."""
     dr, g, state, slept = order_drawer(toggle_on_before=True, stray_to=(900, 300))
-    with pytest.raises(SafetyError, match="Letzte Kontrolle.*menge"):
+    with pytest.raises(SafetyError, match="Letzte Kontrolle.*Menge"):
         dr.play("kaufen", ORDER, **ORDER_KW)
     assert ("click", 1000, 700) not in g.calls
 
@@ -601,7 +601,7 @@ def test_beschriftung_stimmt_order_laeuft_durch():
 def test_beschriftung_vertauscht_nichts_getippt_nicht_bestaetigt():
     # über dem 'ziel'-Feld steht Stop-Loss -> Ablauf passt nicht zum Fenster
     dr, g, state = _order_with_labels({(900, 400): "Stop-Loss Preis", (900, 500): "Take Profit Preis"})
-    with pytest.raises(SafetyError, match="Über dem Feld 'ziel' steht Stop-Loss"):
+    with pytest.raises(SafetyError, match="Über dem Feld 'Take-Profit' steht Stop-Loss"):
         dr.play("kaufen", ORDER, **ORDER_KW)
     assert ("click", 1000, 700) not in g.calls
     assert [c for c in g.calls if c[0] == "type" and "ziel" in c[1]] == []   # nichts ins Feld getippt

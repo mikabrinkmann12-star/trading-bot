@@ -17,9 +17,15 @@ class OcrError(RuntimeError):
 
 
 def setup_tesseract(path: str | None):
+    import shutil
+
     import pytesseract
     if path and Path(path).exists():
         pytesseract.pytesseract.tesseract_cmd = path
+    elif shutil.which("tesseract") is None:
+        print(f"WARNUNG: Tesseract nicht gefunden (config.json 'tesseract': {path!r}). Ohne "
+              f"Tesseract kann der Bot nichts lesen. Installieren bzw. Pfad in config.json "
+              f"eintragen (mit \\\\ oder /).")
 
 
 def grab(region):

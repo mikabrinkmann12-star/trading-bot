@@ -20,7 +20,13 @@ def load(path: str | Path = "config.json") -> dict:
     cfg = dict(DEFAULTS)
     p = Path(path)
     if p.exists():
-        cfg.update(json.loads(p.read_text(encoding="utf-8-sig")))   # auch mit BOM (Editor)
+        try:
+            cfg.update(json.loads(p.read_text(encoding="utf-8-sig")))   # auch mit BOM (Editor)
+        except json.JSONDecodeError as e:
+            raise SystemExit(
+                f"{p} ist kaputt (Zeile {e.lineno}, Spalte {e.colno}): {e.msg}. Häufigster Grund: "
+                f"ein Pfad mit einfachem \\. Schreibe ihn mit doppeltem \\\\ oder mit /, z.B. "
+                f"\"C:\\\\Program Files\\\\Tesseract-OCR\\\\tesseract.exe\".")
     return cfg
 
 
