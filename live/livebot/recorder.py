@@ -57,13 +57,15 @@ ANLEITUNG = {
      - NICHT das X an der Positionslinie im Chart: die liegt jeden Tag woanders.
   2. Falls eine Rückfrage kommt: Klick auf Bestätigen""",
 }
-ANLEITUNG["meldungen"] = """  Nach einem Kauf erscheint unten links die Meldung 'Order ausgefüllt' und verdeckt den
-  Kontonamen. Mach das Wegklicken einmal vor:
-  1. Kauf von Hand im Paper-Konto auslösen, damit die Meldung(en) erscheinen
-  2. Klick auf das Glocken-/Meldungs-Symbol bzw. auf 'Alle schließen / Alle löschen' - so, wie du
-     ALLE Meldungen auf einmal wegmachst (meist 1-2 Klicks)
-  3. Danach Position von Hand schließen
-  Der Bot klickt das nur, wenn er den Kontonamen nicht lesen kann (und nie sonst)."""
+ANLEITUNG["meldungen"] = """  ERST den Kauf von Hand machen (Paper-Konto), damit Meldungen da sind - und ERST DANACH
+  diesen Befehl starten. In der Aufnahme darf KEIN Kauf mehr vorkommen!
+  Aufgenommen wird nur das Wegklicken:
+  1. Auf das Glocken-/Meldungs-Symbol klicken (Meldungen öffnen), falls nötig
+  2. Auf 'Alle schließen / Alle löschen' klicken - so, wie du ALLE Meldungen auf einmal
+     wegmachst (höchstens 5 Klicks)
+  Danach F9. Position schließt du selbst.
+  Der Bot klickt das nur, wenn er den Kontonamen nicht lesen kann. Klicks auf Kaufen/
+  Verkaufen/Bestätigen werden abgelehnt."""
 ANLEITUNG["short"] = ANLEITUNG["long"].replace("Long", "Short")
 ANLEITUNG["verkaufen"] = ANLEITUNG["kaufen"].replace("kaufen", "verkaufen").replace(
     "Kaufen", "Verkaufen")
@@ -74,6 +76,43 @@ ORDER_FLOWS = ("kaufen", "verkaufen", "breakeven", "schliessen")
 
 class RecordError(ValueError):
     pass
+
+
+MAX_MELDUNGEN_KLICKS = 5
+
+
+def order_points(cfg: dict) -> list[tuple[int, int, str]]:
+    """Gefährliche Klickpunkte aus den Order-Abläufen: der Kaufen-/Verkaufen-Knopf (1. Klick),
+    jeder Klick direkt nach dem letzten Tipp-Feld (Bestätigen) und der Schließen-Knopf."""
+    out = []
+    for name in ("kaufen", "verkaufen", "breakeven", "schliessen"):
+        steps = (cfg.get("ablaeufe") or {}).get(name) or []
+        if not steps:
+            continue
+        idx = {0} if name != "breakeven" else set()
+        typed = [i for i, s in enumerate(steps) if s.get("tippe")]
+        if typed and typed[-1] + 1 < len(steps):
+            idx.add(typed[-1] + 1)
+        for i in idx:
+            x, y = steps[i]["punkt"]
+            out.append((x, y, f"'{name}' Schritt {i + 1}"))
+    return out
+
+
+def meldungen_problem(cfg: dict, steps: list[dict]) -> str | None:
+    """Warum ein Ablauf 'meldungen' NICHT erlaubt ist (oder None). Er darf nie etwas kaufen,
+    verkaufen, bestätigen oder schließen."""
+    if len(steps) > MAX_MELDUNGEN_KLICKS:
+        return (f"{len(steps)} Klicks sind zu viel (höchstens {MAX_MELDUNGEN_KLICKS}) - das sieht "
+                f"nach einem Kauf in der Aufnahme aus")
+    if any(s.get("tippe") for s in steps):
+        return "enthält ein Tipp-Feld"
+    for i, s in enumerate(steps):
+        sx, sy = s["punkt"]
+        for ox, oy, what in order_points(cfg):
+            if abs(sx - ox) <= 15 and abs(sy - oy) <= 15:
+                return f"Klick {i + 1} ({sx}, {sy}) liegt auf {what} (Kaufen/Verkaufen/Bestätigen)"
+    return None
 
 
 def price_dependent_clicks(cfg: dict, name: str) -> list[str]:
@@ -210,6 +249,10 @@ Aufnahme '{direction}'. Mach es jetzt EINMAL in TradingView vor:
         print("(Normal, wenn der Einstellungsdialog inzwischen zu ist und dahinter TradingView "
               "liegt - sonst neu aufnehmen.)")
     cfg = config.load(cfg_path)
+    if direction == "meldungen" and (why := meldungen_problem(cfg, steps)):
+        print(f"\nNICHT gespeichert: {why}.")
+        print("Mach den Kauf von Hand VOR dem Befehl und nimm danach nur das Wegklicken auf.")
+        return False
     cfg.setdefault("ablaeufe", {})[direction] = steps
     config.save(cfg, cfg_path)
     for warn in price_dependent_clicks(cfg, direction):

@@ -68,3 +68,58 @@ def test_klick_auf_linie_im_chart_wird_gemeldet():
     assert len(price_dependent_clicks(cfg, "breakeven")) == 1
     assert price_dependent_clicks(cfg, "kaufen") == []
     assert price_dependent_clicks(cfg, "schliessen") == []                  # Handelspanel
+
+
+KAUFEN = [{"punkt": [216, 127], "doppel": False, "tippe": None},
+          {"punkt": [1426, 326], "doppel": False, "tippe": "menge"},
+          {"punkt": [1434, 538], "doppel": False, "tippe": "ziel"},
+          {"punkt": [1436, 622], "doppel": False, "tippe": "stop"},
+          {"punkt": [1502, 770], "doppel": False, "tippe": None},
+          {"punkt": [1642, 105], "doppel": False, "tippe": None}]
+
+
+def _cfg(meldungen):
+    return {"ablaeufe": {"kaufen": KAUFEN, "meldungen": meldungen}}
+
+
+def test_meldungen_mit_kauf_in_der_aufnahme_wird_abgelehnt():
+    from livebot.recorder import meldungen_problem
+    # die echte (falsche) Aufnahme des Nutzers: Kaufablauf + Wegklicken
+    bad = [{"punkt": p, "doppel": False, "tippe": None} for p in
+           [(213, 134), (1403, 326), (1622, 502), (1455, 542), (1623, 582), (1490, 623),
+            (1483, 764), (1630, 96), (450, 896), (109, 1011), (1639, 337), (1120, 585),
+            (1609, 144)]]
+    assert "zu viel" in meldungen_problem(_cfg(bad), bad)
+    # nur 2 Klicks, aber einer sitzt auf dem Bestätigen-Knopf des Kaufens
+    two = [{"punkt": [1500, 768], "doppel": False, "tippe": None},
+           {"punkt": [300, 900], "doppel": False, "tippe": None}]
+    assert "Bestätigen" in meldungen_problem(_cfg(two), two)
+    # nur ein Klick auf den Kaufen-Knopf
+    one = [{"punkt": [214, 130], "doppel": False, "tippe": None}]
+    assert meldungen_problem(_cfg(one), one)
+
+
+def test_meldungen_nur_wegklicken_ist_erlaubt():
+    from livebot.recorder import meldungen_problem
+    ok = [{"punkt": [1850, 140], "doppel": False, "tippe": None},     # Glocke
+          {"punkt": [1820, 330], "doppel": False, "tippe": None}]     # Alle löschen
+    assert meldungen_problem(_cfg(ok), ok) is None
+
+
+def test_bot_spielt_gefaehrlichen_meldungen_ablauf_nie_ab():
+    import pytest as _pt
+
+    from livebot.orders import LiveActions
+    from livebot.safety import SafetyError
+
+    class D:
+        played = []
+
+        def play(self, *a, **k):
+            self.played.append(a)
+    bad = [{"punkt": [216, 127], "doppel": False, "tippe": None}]
+    d = D()
+    acts = LiveActions(dict(_cfg(bad), menge=1), d, None)
+    with _pt.raises(SafetyError, match="nicht abgespielt"):
+        acts.dismiss_messages()
+    assert d.played == []

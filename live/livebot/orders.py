@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from .safety import SafetyError
 from .strategy import LONG
 
 
@@ -74,8 +75,14 @@ class LiveActions:
     def dismiss_messages(self):
         """Meldungen wie 'Order ausgefüllt' wegklicken (aufgenommener Ablauf 'meldungen').
         Keine Paper-Prüfung nötig: Es wird nichts gekauft, nur geklickt."""
-        if not (self.cfg.get("ablaeufe") or {}).get("meldungen"):
+        steps = (self.cfg.get("ablaeufe") or {}).get("meldungen")
+        if not steps:
             return
+        from .recorder import meldungen_problem
+        if why := meldungen_problem(self.cfg, steps):
+            # z.B. eine alte Aufnahme, in der ein Kauf mit aufgenommen wurde: NIE abspielen
+            raise SafetyError(f"Ablauf 'meldungen' wird nicht abgespielt: {why}. "
+                              f"Bitte neu aufnehmen (python live.py --aufnehmen meldungen).")
         self.drawer.play("meldungen", {}, final_esc=False, pause=0.3, close_check="off")
 
     def draw(self, direction: str, entry: float, stop: float, target: float):
