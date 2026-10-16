@@ -51,6 +51,8 @@ def main(argv=None) -> int:
     p.add_argument("--probelauf", action="store_true",
                    help="kompletter Ablauf sofort: Uhr wird so verschoben, dass jetzt 'kurz vor "
                         "9:00' ist (echte Kerzen, Paper-Konto, Ergebnisse in probelauf/)")
+    p.add_argument("--ohne-uhrkorrektur", action="store_true",
+                   help="nur die Windows-Uhr benutzen (keine Korrektur über das Internet)")
     p.add_argument("--auswertung", action="store_true", help="Statistik aus trades.csv")
     p.add_argument("--von", help="mit --auswertung: ab Datum")
     p.add_argument("--bis", help="mit --auswertung: bis Datum")
@@ -79,7 +81,7 @@ def main(argv=None) -> int:
     from livebot.runner import run_live
     if args.probelauf:
         from livebot.nyclock import ShiftClock, probe_shift, sec_of_day
-        base = checked_clock()
+        base = checked_clock(not args.ohne_uhrkorrektur)
         real = base()
         shift = probe_shift(sec_of_day(real))
         clock = ShiftClock(shift, real=base)
@@ -98,26 +100,29 @@ def main(argv=None) -> int:
     out = args.ausgabe if args.ausgabe != "." else ("ohne_orders" if args.ohne_orders else ".")
     if out == "ohne_orders":
         print("Ohne Orders: Ergebnisse kommen in den Ordner 'ohne_orders' (nicht in trades.csv).")
-    return run_live(out, args.config, orders=not args.ohne_orders, clock=checked_clock())
+    return run_live(out, args.config, orders=not args.ohne_orders, clock=checked_clock(not args.ohne_uhrkorrektur))
 
 
-def checked_clock():
-    """Die Windows-Uhr kann falsch gehen (beim Nutzer 5 min) - dann wären alle Kerzen um eine
-    verschoben. Darum: Zeit aus dem Internet vergleichen und ggf. korrigieren."""
+def checked_clock(correct: bool = True):
+    """Die Windows-Uhr kann falsch gehen - dann wären alle Kerzen um eine verschoben. Darum:
+    Zeit aus dem Internet vergleichen (nur wenn 2 Quellen übereinstimmen) und ggf. korrigieren.
+    In jedem Fall die Bot-Zeit anzeigen, damit man sie mit der Uhr im Chart vergleichen kann."""
     from livebot.nyclock import OffsetClock, internet_offset, now_ny
-    off = internet_offset()
-    if off is None:
-        print("WARNUNG: Konnte die Uhrzeit nicht aus dem Internet prüfen. Stimmt die Windows-Uhr "
-              "auf die Minute? (Einstellungen -> Zeit und Sprache -> Jetzt synchronisieren)")
-        return now_ny
-    if abs(off) <= 3:
-        print(f"Uhr geprüft: PC-Uhr stimmt (Abweichung {off:+.1f} s).")
-        return now_ny
-    print(f"ACHTUNG: Deine Windows-Uhr geht {abs(off):.0f} s {'nach' if off > 0 else 'vor'}! Der Bot "
-          f"rechnet mit der richtigen Zeit. Bitte Uhr stellen: Einstellungen -> Zeit und Sprache "
-          f"-> Datum und Uhrzeit -> Jetzt synchronisieren.")
-    return OffsetClock(off)
-
+    clock = now_ny
+    if correct:
+        off = internet_offset()
+        if off is None:
+            print("Hinweis: Uhrzeit aus dem Internet nicht sicher prüfbar - nehme die Windows-Uhr.")
+        elif abs(off) <= 5:
+            print(f"Uhr geprüft: Windows-Uhr stimmt (Abweichung {off:+.1f} s).")
+        else:
+            print(f"ACHTUNG: Laut Internet geht deine Windows-Uhr {abs(off):.0f} s "
+                  f"{'nach' if off > 0 else 'vor'} - der Bot korrigiert das. Stimmt das NICHT: "
+                  f"F12 und neu starten mit:  python live.py --ohne-uhrkorrektur")
+            clock = OffsetClock(off)
+    print(f"Bot-Zeit jetzt: {clock():%H:%M:%S} NY  <- vergleiche mit der Uhr unten im Chart "
+          f"(muss auf ca. 2 s stimmen, sonst F12)")
+    return clock
 
 if __name__ == "__main__":
     sys.exit(main())

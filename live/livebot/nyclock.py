@@ -92,24 +92,35 @@ class ShiftClock:
 TIME_SOURCES = ("https://www.tradingview.com", "https://www.google.com", "https://www.microsoft.com")
 
 
-def internet_offset(sources=TIME_SOURCES, timeout: float = 5.0) -> float | None:
-    """Wie viele Sekunden die PC-Uhr von der echten Zeit abweicht (echte - PC), gelesen aus dem
-    'Date'-Kopf einer Webseite. None = nicht ermittelbar (kein Internet)."""
+def _one_offset(url: str, timeout: float) -> float | None:
     import urllib.request
     from email.utils import parsedate_to_datetime
-    for url in sources:
-        try:
-            req = urllib.request.Request(url, method="HEAD")
-            t0 = time.time()
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                date = resp.headers.get("Date")
-            t1 = time.time()
-            if not date:
-                continue
-            real = parsedate_to_datetime(date).timestamp() + 0.5    # Date hat ganze Sekunden
-            return real - (t0 + t1) / 2
-        except Exception:
-            continue
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"Cache-Control": "no-cache"})
+        t0 = time.time()
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            date = resp.headers.get("Date")
+            age = resp.headers.get("Age")
+        t1 = time.time()
+        if not date:
+            return None
+        # Aus einem Zwischenspeicher (CDN) ist 'Date' ALT - 'Age' sagt, wie alt
+        real = parsedate_to_datetime(date).timestamp() + 0.5 + float(age or 0)
+        return real - (t0 + t1) / 2
+    except Exception:
+        return None
+
+
+def internet_offset(sources=TIME_SOURCES, timeout: float = 5.0) -> float | None:
+    """Wie viele Sekunden die PC-Uhr von der echten Zeit abweicht (echte - PC). Nur wenn
+    mindestens ZWEI Quellen auf 5 s übereinstimmen - sonst None (lieber nicht korrigieren)."""
+    vals = [v for v in (_one_offset(u, timeout) for u in sources) if v is not None]
+    if len(vals) < 2:
+        return None if len(sources) > 1 or not vals else vals[0]
+    vals.sort()
+    for a, b in zip(vals, vals[1:]):
+        if abs(a - b) <= 5:
+            return (a + b) / 2
     return None
 
 

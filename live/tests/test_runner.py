@@ -174,7 +174,7 @@ def test_uhr_aus_dem_internet(monkeypatch):
         def __exit__(self, *a):
             return False
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: Resp())
-    off = internet_offset(sources=("https://x",))
+    off = internet_offset(sources=("https://x", "https://y"))
     assert 299 <= off <= 302
     base = lambda: datetime(2026, 10, 16, 9, 10, 0)            # noqa: E731
     assert OffsetClock(300, real=base)() == datetime(2026, 10, 16, 9, 15, 0)
@@ -183,3 +183,44 @@ def test_uhr_aus_dem_internet(monkeypatch):
         raise OSError("kein Internet")
     monkeypatch.setattr(urllib.request, "urlopen", boom)
     assert internet_offset(sources=("https://x",)) is None
+
+
+def test_uhr_alter_zwischenspeicher_wird_beruecksichtigt(monkeypatch):
+    """CDN liefert ein ALTES 'Date' (102 s) mit 'Age: 102' -> KEINE Abweichung."""
+    import time
+    import urllib.request
+    from email.utils import formatdate
+
+    from livebot.nyclock import internet_offset
+
+    class Resp:
+        headers = {"Date": formatdate(time.time() - 102, usegmt=True), "Age": "102"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: Resp())
+    assert abs(internet_offset(sources=("https://x", "https://y"))) <= 2
+
+
+def test_uhr_quellen_uneinig_keine_korrektur(monkeypatch):
+    import time
+    import urllib.request
+    from email.utils import formatdate
+
+    from livebot.nyclock import internet_offset
+    shifts = iter([-102, 0, 250])
+
+    class Resp:
+        def __init__(self):
+            self.headers = {"Date": formatdate(time.time() + next(shifts), usegmt=True)}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: Resp())
+    assert internet_offset(sources=("a", "b", "c")) is None
