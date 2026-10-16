@@ -35,7 +35,9 @@ class SimClock:
         return self.base + timedelta(seconds=(time.time() - self.epoch) * self.factor)
 
 
-LATEST_START = 9 * 3600 + 4 * 60      # danach fehlt die 9:00-Kerze -> Strategie nicht rechenbar
+LATEST_START = 9 * 3600 + 4 * 60      # bis hier sieht der Bot die 9:00-Kerze noch selbst
+LATEST_BACKFILL = 9 * 3600 + 44 * 60  # bis hier: verpasste Kerzen ab 9:00 werden nachgelesen
+                                      # (danach könnte schon ein BOS/Entry verpasst sein)
 
 
 def german_time(now: datetime, hour: int, minute: int) -> str:
@@ -56,11 +58,18 @@ def start_problem(now: datetime) -> str | None:
     sec = sec_of_day(now)
     if now.weekday() >= 5:
         return "Heute ist Wochenende (NY) - kein Handelstag."
-    if sec > LATEST_START:
-        return (f"Es ist schon {now:%H:%M} NY. Der Bot braucht ALLE Kerzen ab 9:00 NY und muss "
-                f"deshalb vor 9:04 NY laufen ({german_time(now, 9, 4)}). Heute geht nur noch:  "
-                f"python live.py --probelauf")
+    if sec > LATEST_BACKFILL:
+        return (f"Es ist schon {now:%H:%M} NY. Der Bot braucht ALLE Kerzen ab 9:00 NY. Er kann "
+                f"verpasste Kerzen nachlesen, aber nur bis 9:44 NY ({german_time(now, 9, 44)}) - "
+                f"danach könnte der BOS oder die Entry-Berührung schon vorbei sein. Heute geht "
+                f"nur noch:  python live.py --probelauf")
     return None
+
+
+def missed_bars(now: datetime) -> int:
+    """Wie viele fertige 5-min-Kerzen ab 9:00 NY schon vorbei sind (0 vor 9:05)."""
+    bar = int(sec_of_day(now) // 300) * 5          # Startminute der entstehenden Kerze
+    return max(0, (bar - 9 * 60) // 5)
 
 
 def probe_shift(real_sec: float, start: int = 9 * 3600) -> int:

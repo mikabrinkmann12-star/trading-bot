@@ -10,11 +10,11 @@ from typing import Callable
 from . import config
 from .journal import Journal
 from .legend import check_plausible
-from .livefeed import LiveFeed, read_closed_exact
+from .livefeed import LiveFeed, backfill_candles, read_closed_exact
 from .livetrade import (ARMED, CLOSE_FAILED, IN_TRADE, NO_PAPER, ORDER_ERROR,
                         TRADE_RESULTS, WAIT, TradeManager)
 from .models import Candle, m2t
-from .nyclock import now_ny, sec_of_day, start_problem
+from .nyclock import missed_bars, now_ny, sec_of_day, start_problem
 from .strategy import StrategyEngine
 
 STATUS, CANDLE, DONE, ERROR = "status", "candle", "done", "error"
@@ -100,6 +100,21 @@ class LiveRunner:
             return None
         last = self.actions.last_closed[3] if self.actions and self.actions.last_closed else None
         return None if check_plausible(*vals, prev_close=last) else vals[3]
+
+    def preload(self, candles: list[tuple], first_minute: int = 9 * 60):
+        """Nachgelesene fertige Kerzen (ab 9:00) einspeisen, bevor der Live-Lauf beginnt.
+        Nur bis vor den BOS erlaubt -> hier kann noch keine Order entstehen."""
+        for i, vals in enumerate(candles):
+            minute = first_minute + 5 * i
+            candle = Candle(m2t(minute), *vals)
+            self.journal.log_candle(self.date, candle, "nachgelesen")
+            rep = self.engine.on_candle(candle)
+            if self.actions is not None:
+                self.actions.prev_closed, self.actions.last_closed = self.actions.last_closed, vals
+            self.manager.on_bar_closed()                 # ohne Kurswerte: KEINE Order-Prüfung
+            self.post(CANDLE, (self.manager.snapshot(self.engine.snapshot()), rep.events))
+        if candles:
+            self.feed.last_closed = candles[-1]
 
     def _mouse_in_chart(self) -> bool:
         """Steht die Maus (des Nutzers) im Chart? Über dem Bot-Fenster zählt nicht."""
@@ -278,6 +293,30 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
                         ignore_fn=lambda: ui["fenster"])
 
     manager.price_fn = runner.fresh_price
+    n = 0 if probe_note else missed_bars(clock())
+    if n:
+        print(f"Start nach 9:04 NY: lese die {n} verpassten Kerzen ab 9:00 nach - Maus NICHT "
+              f"anfassen ...")
+        for _attempt in range(2):          # beginnt währenddessen eine neue Kerze: neu lesen
+            candles, why = backfill_candles(
+                cfg, n, grab=ocr.grab, read_ohlc=ocr.read_ohlc,
+                move=lambda x, y: guard.move_to(x, y, "Kerze nachlesen (Hover)"),
+                sleep=time.sleep, park=lambda: guard.move_to(*cfg["parkplatz"], "Maus parken"))
+            guard.move_to(*cfg["parkplatz"], "Maus parken")
+            if missed_bars(clock()) == n:
+                break
+            n = missed_bars(clock())
+            candles, why = [], "während des Nachlesens hat eine neue Kerze begonnen"
+        if not candles:
+            journal.log_action(f"Nachlesen fehlgeschlagen: {why}")
+            print(f"Nachlesen hat NICHT geklappt: {why}.")
+            print("Ohne alle Kerzen ab 9:00 handelt der Bot heute nicht. Tipp: Chart so "
+                  "zoomen/schieben, dass die Kerzen ab 9:00 sichtbar sind, und neu starten.")
+            return 1
+        for i, c in enumerate(candles):
+            print(f"  {m2t(9 * 60 + 5 * i)}  O {c[0]:.2f}  H {c[1]:.2f}  L {c[2]:.2f}  C {c[3]:.2f}")
+        print("Bitte kurz mit dem Chart vergleichen. Falsch? -> F12 drücken.")
+        runner.preload(candles)
     win = StatusWindow(cfg, on_stop=stop.set)
     win.show(manager.snapshot(engine.snapshot()))
     win.set_status(("PROBELAUF" if probe_note else "LIVE") + ": Maus NICHT anfassen. F12 = sofort "

@@ -123,3 +123,35 @@ def test_maus_im_chart_wird_nicht_gelesen(tmp_path):
     assert any("Maus aus dem Chart" in str(p) for k, p in posts)
     mouse["pos"] = (900, 500)                           # über dem Bot-Fenster: zählt nicht
     assert not r._mouse_in_chart()
+
+
+def test_spaeter_start_mit_nachgelesenen_kerzen_handelt_normal(tmp_path):
+    """Start um 9:21: Kerzen 9:00-9:15 werden nachgelesen, ab 9:20 live - gleiches Ergebnis."""
+    cs = read_candles(DATA / "2026-09-14.csv")
+    leg = TickingLegend(cs)
+    engine = StrategyEngine("2026-09-14")
+    acts = FakeActions()
+    acts.last_closed = acts.prev_closed = None
+    m = TradeManager(engine, acts)
+    r = LiveRunner(engine, m, Journal(tmp_path), date="2026-09-14", read_fn=leg.read,
+                   post=lambda k, p: None, actions=acts)
+    r.preload([(c.o, c.h, c.l, c.c) for c in cs[:4]])          # 9:00, 9:05, 9:10, 9:15
+    sec = 9 * 3600 + 21 * 60
+    while sec < 12 * 3600:
+        leg.now = datetime(2026, 9, 14, sec // 3600, sec // 60 % 60, sec % 60)
+        if not r.step(leg.now):
+            break
+        sec += 2
+    assert [c.time for c in engine.candles][:6] == ["09:00", "09:05", "09:10", "09:15", "09:20",
+                                                    "09:25"]
+    assert engine.bos_candle.time == "09:45" and m.result == TARGET
+
+
+def test_start_bis_944_erlaubt_danach_nicht():
+    from livebot.nyclock import missed_bars, start_problem
+    assert start_problem(datetime(2026, 10, 16, 9, 6)) is None
+    assert start_problem(datetime(2026, 10, 16, 9, 44)) is None
+    assert "9:44" in start_problem(datetime(2026, 10, 16, 9, 45))
+    assert missed_bars(datetime(2026, 10, 16, 9, 6)) == 1        # 9:00 ist fertig
+    assert missed_bars(datetime(2026, 10, 16, 9, 21)) == 4
+    assert missed_bars(datetime(2026, 10, 16, 8, 50)) == 0

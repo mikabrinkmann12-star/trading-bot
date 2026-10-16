@@ -88,7 +88,8 @@ python live.py --probelauf
 python live.py
 ```
 - **Vor 9:04 NY** starten, am besten vor 9:00. Das ist meistens **15:00 deutscher Zeit**. Weil Europa und die USA die Uhr an verschiedenen Tagen umstellen, ist es ein paar Tage im März und Ende Oktober/Anfang November schon **14:00**. Er braucht alle Kerzen ab 9:00.
-- Startest du später, sagt er das sofort (mit der richtigen deutschen Uhrzeit) und hört auf. Dann geht für diesen Tag nur noch `--probelauf`.
+- **Zu spät dran (bis 9:44 NY)?** Dann liest er die verpassten Kerzen ab 9:00 beim Start per Maus nach, zeigt sie dir im schwarzen Fenster und prüft, dass sie lückenlos zusammenpassen. Vergleiche sie kurz mit dem Chart (falsch → F12). Die Kerzen ab 9:00 müssen dafür im Chart **sichtbar** sein.
+- Ab 9:45 NY startet er nicht mehr (dann könnte der BOS schon vorbei sein) und sagt dir das. Dann geht für diesen Tag nur noch `--probelauf`.
 - **Maus und Tastatur nicht anfassen.** Der Bot liest laufend die Legende.
 - Er hört von selbst auf, wenn der Tag für ihn erledigt ist: kein Setup, nicht gefüllt oder Trade beendet.
 

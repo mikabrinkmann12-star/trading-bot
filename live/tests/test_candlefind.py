@@ -187,3 +187,39 @@ def test_entstehende_kerze_nur_ueber_open_gefunden():
     x, why = locate_current_candle(CFG, current, None, grab=tv.grab, read_ohlc=tv.read,
                                    move=tv.move, sleep=lambda s: None, same=same_open)
     assert x == CHART[0] + 680, why
+
+
+class NQ(FakeTV):
+    """Wie FakeTV, aber mit realistischen NQ-Preisen (sonst greift die Plausibilitätsprüfung)."""
+
+    def vals(self, i):
+        b = 30000.0 + i
+        return (b, b + 1, b - 1, b + 0.5)
+
+
+def test_verpasste_kerzen_nachlesen():
+    """Start um 9:2x: die fertigen Kerzen links von der aktuellen werden per Hover gelesen."""
+    from livebot.livefeed import backfill_candles
+    img = chart_img(CANDLES)
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+    tv = NQ(img, xs)
+    tv.x = 10 ** 6                                       # Maus geparkt -> Legende = letzte Kerze
+    got, why = backfill_candles(CFG, 4, grab=tv.grab, read_ohlc=tv.read, move=tv.move,
+                                sleep=lambda s: None, park=lambda: tv.move(10 ** 6, 0))
+    assert why == "" and got == [tv.vals(i) for i in (25, 26, 27, 28)]   # älteste zuerst
+
+
+def test_nachlesen_mit_luecke_wird_abgelehnt():
+    from livebot.livefeed import backfill_candles
+    img = chart_img(CANDLES)
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+
+    class Gap(FakeTV):
+        def vals(self, i):
+            base = 30000.0 + i + (100.0 if i >= 27 else 0.0)  # Sprung: Kerze fehlt/verlesen
+            return (base, base + 1, base - 1, base + 0.5)
+    tv = Gap(img, xs)
+    tv.x = 10 ** 6
+    got, why = backfill_candles(CFG, 4, grab=tv.grab, read_ohlc=tv.read, move=tv.move,
+                                sleep=lambda s: None, park=lambda: tv.move(10 ** 6, 0))
+    assert got == [] and "lückenlos" in why
