@@ -155,3 +155,31 @@ def test_start_bis_944_erlaubt_danach_nicht():
     assert missed_bars(datetime(2026, 10, 16, 9, 6)) == 1        # 9:00 ist fertig
     assert missed_bars(datetime(2026, 10, 16, 9, 21)) == 4
     assert missed_bars(datetime(2026, 10, 16, 8, 50)) == 0
+
+
+def test_uhr_aus_dem_internet(monkeypatch):
+    """PC-Uhr geht 5 min nach -> Korrektur +300 s (wie beim Nutzer)."""
+    import time
+    import urllib.request
+    from email.utils import formatdate
+
+    from livebot.nyclock import OffsetClock, internet_offset
+
+    class Resp:
+        headers = {"Date": formatdate(time.time() + 300, usegmt=True)}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: Resp())
+    off = internet_offset(sources=("https://x",))
+    assert 299 <= off <= 302
+    base = lambda: datetime(2026, 10, 16, 9, 10, 0)            # noqa: E731
+    assert OffsetClock(300, real=base)() == datetime(2026, 10, 16, 9, 15, 0)
+
+    def boom(req, timeout):
+        raise OSError("kein Internet")
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert internet_offset(sources=("https://x",)) is None

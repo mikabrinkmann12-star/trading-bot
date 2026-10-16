@@ -78,10 +78,11 @@ def main(argv=None) -> int:
         return run_action_test(args.aktion_test, args.ausgabe, args.config)
     from livebot.runner import run_live
     if args.probelauf:
-        from livebot.nyclock import ShiftClock, now_ny, probe_shift, sec_of_day
-        real = now_ny()
+        from livebot.nyclock import ShiftClock, probe_shift, sec_of_day
+        base = checked_clock()
+        real = base()
         shift = probe_shift(sec_of_day(real))
-        clock = ShiftClock(shift)
+        clock = ShiftClock(shift, real=base)
         out = args.ausgabe if args.ausgabe != "." else "probelauf"
         note = (f"PROBELAUF: Es ist {real:%H:%M} NY, der Bot tut so, als wäre es "
                 f"{clock():%H:%M} NY (Uhr {shift // 60} min zurückgestellt). Echte Kerzen, "
@@ -97,7 +98,25 @@ def main(argv=None) -> int:
     out = args.ausgabe if args.ausgabe != "." else ("ohne_orders" if args.ohne_orders else ".")
     if out == "ohne_orders":
         print("Ohne Orders: Ergebnisse kommen in den Ordner 'ohne_orders' (nicht in trades.csv).")
-    return run_live(out, args.config, orders=not args.ohne_orders)
+    return run_live(out, args.config, orders=not args.ohne_orders, clock=checked_clock())
+
+
+def checked_clock():
+    """Die Windows-Uhr kann falsch gehen (beim Nutzer 5 min) - dann wären alle Kerzen um eine
+    verschoben. Darum: Zeit aus dem Internet vergleichen und ggf. korrigieren."""
+    from livebot.nyclock import OffsetClock, internet_offset, now_ny
+    off = internet_offset()
+    if off is None:
+        print("WARNUNG: Konnte die Uhrzeit nicht aus dem Internet prüfen. Stimmt die Windows-Uhr "
+              "auf die Minute? (Einstellungen -> Zeit und Sprache -> Jetzt synchronisieren)")
+        return now_ny
+    if abs(off) <= 3:
+        print(f"Uhr geprüft: PC-Uhr stimmt (Abweichung {off:+.1f} s).")
+        return now_ny
+    print(f"ACHTUNG: Deine Windows-Uhr geht {abs(off):.0f} s {'nach' if off > 0 else 'vor'}! Der Bot "
+          f"rechnet mit der richtigen Zeit. Bitte Uhr stellen: Einstellungen -> Zeit und Sprache "
+          f"-> Datum und Uhrzeit -> Jetzt synchronisieren.")
+    return OffsetClock(off)
 
 
 if __name__ == "__main__":

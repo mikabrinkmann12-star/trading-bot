@@ -87,3 +87,38 @@ class ShiftClock:
 
     def __call__(self) -> datetime:
         return self.real() - timedelta(seconds=self.shift)
+
+
+TIME_SOURCES = ("https://www.tradingview.com", "https://www.google.com", "https://www.microsoft.com")
+
+
+def internet_offset(sources=TIME_SOURCES, timeout: float = 5.0) -> float | None:
+    """Wie viele Sekunden die PC-Uhr von der echten Zeit abweicht (echte - PC), gelesen aus dem
+    'Date'-Kopf einer Webseite. None = nicht ermittelbar (kein Internet)."""
+    import urllib.request
+    from email.utils import parsedate_to_datetime
+    for url in sources:
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            t0 = time.time()
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                date = resp.headers.get("Date")
+            t1 = time.time()
+            if not date:
+                continue
+            real = parsedate_to_datetime(date).timestamp() + 0.5    # Date hat ganze Sekunden
+            return real - (t0 + t1) / 2
+        except Exception:
+            continue
+    return None
+
+
+class OffsetClock:
+    """NY-Zeit aus der PC-Uhr plus Korrektur (wenn die Windows-Uhr falsch geht)."""
+
+    def __init__(self, offset: float, real=None):
+        self.offset = offset
+        self.real = real or now_ny
+
+    def __call__(self) -> datetime:
+        return self.real() + timedelta(seconds=self.offset)
