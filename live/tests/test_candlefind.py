@@ -223,3 +223,18 @@ def test_nachlesen_mit_luecke_wird_abgelehnt():
     got, why = backfill_candles(CFG, 4, grab=tv.grab, read_ohlc=tv.read, move=tv.move,
                                 sleep=lambda s: None, park=lambda: tv.move(10 ** 6, 0))
     assert got == [] and "lückenlos" in why
+
+
+def test_nachlesen_nicht_verschoben_durch_linie_rechts_der_letzten_kerze():
+    """Fall vom Nutzer: rechts neben der letzten Kerze steht etwas Dunkles (Positionslinie mit
+    Beschriftung, Box). Dort zeigt die Legende AUCH die letzte Kerze -> ohne Gegenprobe wäre
+    alles um eine Kerze verschoben."""
+    from livebot.livefeed import backfill_candles
+    img = chart_img(CANDLES)
+    img[250:262, 760:790] = BLACK                        # dunkler Kasten rechts der letzten Kerze
+    xs = [CHART[0] + 100 + 20 * i for i in range(30)]
+    tv = NQ(img, xs)
+    tv.x = 10 ** 6
+    got, why = backfill_candles(CFG, 3, grab=tv.grab, read_ohlc=tv.read, move=tv.move,
+                                sleep=lambda s: None, park=lambda: tv.move(10 ** 6, 0))
+    assert why == "" and got == [tv.vals(i) for i in (26, 27, 28)]

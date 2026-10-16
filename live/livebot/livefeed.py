@@ -101,9 +101,15 @@ def backfill_candles(cfg: dict, count: int, *, grab, read_ohlc, move, sleep, par
             if vals is not None:
                 return vals
         return None
-    x0 = next((x for x in cands[:3] if same_open(at(x), current)), None)
+    # Die entstehende Kerze finden - MIT Gegenprobe: links daneben muss eine ANDERE Kerze sein.
+    # (Rechts von der letzten Kerze - Positionslinien, Boxen, Beschriftungen - zeigt die Legende
+    # ebenfalls die letzte Kerze; ohne Gegenprobe wäre dann alles um eine Kerze verschoben.)
+    from .candlefind import locate_current_candle
+    x0, why = locate_current_candle(cfg, current, None, grab=grab, read_ohlc=read_ohlc,
+                                    move=move, sleep=sleep, exclude=list(exclude),
+                                    hover_pause=hover_pause, same=same_open)
     if x0 is None:
-        return [], "aktuelle Kerze im Chart nicht gefunden"
+        return [], f"aktuelle Kerze im Chart nicht sicher gefunden ({why})"
     out = []
     for k in range(1, count + 1):
         target = x0 - k * spacing
@@ -113,6 +119,8 @@ def backfill_candles(cfg: dict, count: int, *, grab, read_ohlc, move, sleep, par
         if vals is None or check_plausible(*vals):
             return [], f"Kerze {k} vor der aktuellen nicht sicher lesbar ({vals})"
         out.append(vals)
+    if same_open(out[0], current):
+        return [], "die Kerze links von der aktuellen ist dieselbe Kerze - Zuordnung unsicher"
     out.reverse()                                       # älteste zuerst
     chain = out + [current]
     for a, b in zip(chain, chain[1:]):
