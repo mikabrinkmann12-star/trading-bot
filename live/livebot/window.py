@@ -26,7 +26,7 @@ class StatusWindow:
         self.head.grid(row=0, column=0, columnspan=2, sticky="we", padx=8, pady=(8, 4))
 
         self.value_labels: dict[str, object] = {}
-        self.names = ["Datum", "Kerze", "Richtung", "Swing-Hoch", "Swing-Tief", "BOS", "Leg",
+        self.names = ["Datum", "Letzte fertige Kerze", "Richtung", "Swing-Hoch", "Swing-Tief", "BOS", "Leg",
                       "Entry", "Stop", "Ziel", "Risiko", "Gefüllt", "Ergebnis", "R"]
         for i, name in enumerate(self.names, start=1):
             tk.Label(self.root, text=name, font=("Segoe UI", 9), fg="#666666",

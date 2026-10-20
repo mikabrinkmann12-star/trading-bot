@@ -356,7 +356,7 @@ class StrategyEngine:
             "step_name": STEP_NAMES[self.step],
             "values": [
                 ("Datum", self.date or "-"),
-                ("Kerze", last),
+                ("Letzte fertige Kerze", last),
                 ("Richtung", {LONG: "LONG (bullisch)", SHORT: "SHORT (bärisch)",
                               NONE: "keine"}.get(self.direction, "-")),
                 ("Swing-Hoch", f"{fmt(sh.h)} ({sh.time})" if sh else "-"),
