@@ -268,7 +268,7 @@ def run_live(out_dir: str, cfg_path: str = "config.json", orders: bool = True,
                           paper, painter=painter, enabled=orders,
                           post=post_status, around=hidden)
     paper.dismiss_fn = actions.dismiss_messages
-    engine = StrategyEngine(date)
+    engine = StrategyEngine(date, max_risk=float(cfg.get("max_risiko", 100)))
     manager = TradeManager(engine, actions, post=post_status)
 
     def read_fn():

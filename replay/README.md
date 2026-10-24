@@ -197,3 +197,5 @@ Der Bericht wird zusätzlich in `auswertung.txt` gespeichert. Unter 20 Trades ko
 - Orders setzt er **keine**, er zeichnet nur ein.
 - Pro Lauf sind höchstens 200 Aktionen erlaubt, jede steht in `logs\aktionen.log`.
 - F12 stoppt sofort, Maus in die linke obere Ecke ebenfalls.
+
+**Risiko-Grenze:** In `config.json` kannst du mit `"max_risiko": 100` einstellen, ab welchem Risiko (Entry bis Stop, in Punkten) es keinen Trade gibt. Standard 100 = deine Regel.

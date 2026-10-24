@@ -280,7 +280,7 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
     if zeichnen is None:          # erzwungen, aber nicht vollständig aufgenommen
         return 1
     journal.log_action(info)
-    engine = StrategyEngine(date)
+    engine = StrategyEngine(date, max_risk=float(cfg.get("max_risiko", 100)))
     q: queue.Queue = queue.Queue()
     stop = threading.Event()
     guard = Guard(cfg, journal, stop_event=stop)
@@ -368,8 +368,7 @@ def run_live(date: str, start: str, out_dir: str, cfg_path: str = "config.json",
                     msg = f"Fertig. Ergebnis gespeichert in {saved}."
                     if zeichnen and not drawn["ok"]:
                         msg += (f" Nichts eingezeichnet, weil {drawn['grund']}." if drawn["grund"]
-                                else f" Nichts eingezeichnet, weil es keine Füllung gab "
-                                     f"({engine.result}).")
+                                else f" Nichts eingezeichnet: {engine.reason}")
                     elif not zeichnen:
                         msg += " Einzeichnen war AUS."
                     win.set_status(msg, "ok")

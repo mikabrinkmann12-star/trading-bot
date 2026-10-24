@@ -230,3 +230,18 @@ def test_reihenfolge_falsch_gibt_fehler():
 def test_unplausible_kerze_gibt_fehler():
     with pytest.raises(ValueError):
         StrategyEngine().on_candle(Candle("09:00", 100, 99, 98, 100))  # O > H
+
+
+def test_max_risiko_einstellbar():
+    """14.9.: Risiko 87.50. Grenze 80 -> kein Trade (mit echtem Grund), Standard 100 -> Setup."""
+    from pathlib import Path
+
+    from replaybot.csv_source import read_candles
+    from replaybot.strategy import NO_TRADE, StrategyEngine
+    cs = read_candles(Path(__file__).parent / "data" / "2026-09-14.csv")
+    tight, normal = StrategyEngine("2026-09-14", max_risk=80), StrategyEngine("2026-09-14")
+    for c in cs[:10]:
+        tight.on_candle(c)
+        normal.on_candle(c)
+    assert tight.result == NO_TRADE and "Risiko 87.50 > 80" in tight.reason
+    assert normal.entry is not None and normal.result != NO_TRADE

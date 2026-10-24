@@ -69,8 +69,9 @@ class CandleReport:
 
 
 class StrategyEngine:
-    def __init__(self, date: str = ""):
+    def __init__(self, date: str = "", max_risk: float = MAX_RISK):
         self.date = date
+        self.max_risk = float(max_risk)       # Risiko darüber -> kein Trade (config "max_risiko")
         self.candles: list[Candle] = []
         self.by_time: dict[str, Candle] = {}
         self.swing_highs: list[Candle] = []
@@ -270,8 +271,9 @@ class StrategyEngine:
         self.target = self.entry + sign * RR * self.risk
         txt = (f"Leg {fmt(lo)}-{fmt(hi)} -> Entry {fmt(self.entry)}, Stop {fmt(self.stop)}, "
                f"Ziel {fmt(self.target)}, Risiko {fmt(self.risk)}")
-        if self.risk > MAX_RISK + EPS:
-            self._finish(NO_TRADE, f"{txt}. Risiko > {MAX_RISK:.0f} Punkte -> Kein Trade.", rep)
+        if self.risk > self.max_risk + EPS:
+            self._finish(NO_TRADE, f"{txt}. Risiko {fmt(self.risk)} > {self.max_risk:.0f} Punkte "
+                                   f"-> Kein Trade.", rep)
             return
         self.reason = (f"BOS {self.bos_candle.time}. {txt}. Limit wartet ab der nächsten "
                        f"Kerze bis 11:00.")

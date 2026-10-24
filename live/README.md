@@ -122,6 +122,7 @@ Die Statistik steht dann auch in `auswertung.txt`.
 | `"dezimal_order"` | `"."` | Dezimalzeichen im Bestellfenster |
 | `"genau_lesen"` | `true` | fertige Kerzen per Hover genau nachlesen |
 | `"paper_wartezeit"` | `20` | so lange wartet die Paper-Sperre, wenn der Kontoname nicht lesbar ist (z. B. Meldung darüber) |
+| `"max_risiko"` | `100` | Risiko (Entry bis Stop) in Punkten, ab dem es **keinen** Trade gibt. Deine Strategie-Regel - nur ändern, wenn du die Regel ändern willst. |
 
 ## Wenn was nicht geht
 - **„Über dem Feld … steht Take-Profit, erwartet wird Stop-Loss“:** Im Fenster „Position bearbeiten“ liegen die Felder je nach Position anders (nur SL: SL oben, TP und SL: TP oben, SL darunter). Der Bot liest vor dem Tippen die Beschriftung über dem Feld und tippt nichts, wenn sie nicht passt. Dann `python live.py --aufnehmen breakeven` neu machen, und zwar auf einer Position **mit TP und SL** (so wie der Bot sie anlegt), und ins **Stop-Loss**-Feld klicken.
